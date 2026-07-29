@@ -1,0 +1,17 @@
+node_modules/
+.env
+.env.local
+*.log
+npm-debug.log*
+
+# Секреты: приватные ключи Apple/сертификаты — НИКОГДА не коммитить
+*.p8
+*.pem
+*.key
+
+# USDA bulk-архивы и распакованные CSV (тяжёлые, восстановимы из FDC download)
+scripts/usda-data/
+*.csv
+*.zip
+
+.DS_Store

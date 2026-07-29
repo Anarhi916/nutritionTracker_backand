@@ -1,0 +1,22 @@
+{
+  "name": "nutritiontracker-backend",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Backend-оркестратор для NutritionTracker: прокси AI, self-host USDA, кросс-юзерный кэш",
+  "type": "module",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "node --watch src/server.js",
+    "import-usda": "node scripts/import-usda.js"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2",
+    "jose": "^6.2.4",
+    "pg": "^8.12.0"
+  }
+}
