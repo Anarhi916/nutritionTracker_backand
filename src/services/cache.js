@@ -1,12 +1,12 @@
-// Кросс-юзерный кэш нутриентов на бэкенде. Ключ = normalizeKey(food_name_en).
-// Хранит ТОЛЬКО server-generated данные (текстовый пайплайн). См. ARCHITECTURE.md.
+// Cross-user nutrient cache on the backend. Key = normalizeKey(food_name_en).
+// Stores ONLY server-generated data (the text pipeline). See ARCHITECTURE.md.
 //
-// normalizeKey идентичен клиентскому DatabaseManager.normalizeKey:
-// lowercased + trim + слова отсортированы по алфавиту + одиночные пробелы.
+// normalizeKey is identical to the client DatabaseManager.normalizeKey:
+// lowercased + trim + words sorted alphabetically + single spaces.
 
 import { query } from '../db/pool.js';
 
-// Нормализация ключа — ТОЧНАЯ копия iOS normalizeKey (порядок слов не важен).
+// Key normalization — an EXACT copy of iOS normalizeKey (word order does not matter).
 export function normalizeKey(name) {
   return String(name)
     .toLowerCase()
@@ -18,7 +18,7 @@ export function normalizeKey(name) {
 }
 
 /**
- * Ищет нутриенты в кэше по английскому имени (нормализованному).
+ * Looks up nutrients in the cache by English name (normalized).
  * @param {string} foodNameEn
  * @returns {Promise<{nutrients:object, source:string}|null>}
  */
@@ -34,10 +34,10 @@ export async function findInCache(foodNameEn) {
 }
 
 /**
- * Пишет server-generated нутриенты в общий кэш по keyEn.
- * UPSERT: повторная запись обновляет (свежее USDA/AI перезаписывает старое).
+ * Writes server-generated nutrients to the shared cache by keyEn.
+ * UPSERT: a repeat write updates (fresher USDA/AI overwrites the old).
  * @param {string} foodNameEn
- * @param {object} nutrientsPer100g — 34 поля на 100 г
+ * @param {object} nutrientsPer100g — 34 fields per 100 g
  * @param {string} source — 'usda' | 'ai'
  */
 export async function saveToCache(foodNameEn, nutrientsPer100g, source) {

@@ -1,9 +1,9 @@
-// Оркестратор текстового анализа — порт analyzeFoodText из iOS NutritionRepository.
-// Отличия от клиента (зафиксированы в ARCHITECTURE.md):
-//   1. Кэш ТОЛЬКО по keyEn (нет локального RU-кэша на сервере).
-//   2. fat-details вызывается СРАЗУ на miss до записи в кэш (фикс асимметрии).
-//   3. Ответ = нутриенты на 100г + вес; клиент масштабирует сам.
-// Вес парсит клиент → сервер получает items [{name, grams}] + uiLang.
+// Text analysis orchestrator — a port of analyzeFoodText from iOS NutritionRepository.
+// Differences from the client (recorded in ARCHITECTURE.md):
+//   1. Cache ONLY by keyEn (no local RU cache on the server).
+//   2. fat-details is called IMMEDIATELY on a miss before writing to the cache (fixes the asymmetry).
+//   3. Response = nutrients per 100g + weight; the client scales it itself.
+// The client parses the weight → the server receives items [{name, grams}] + uiLang.
 
 import { config } from '../config.js';
 import { callOpenRouterWithRetry } from './openrouter.js';
@@ -20,7 +20,7 @@ import {
 
 const TEXT = config.models.text;
 
-// Британский → американский английский (для USDA). Порт списка из iOS.
+// British → American English (for USDA). Port of the list from iOS.
 const BRITISH_TO_AMERICAN = [
   ['beetroot', 'beet'], ['aubergine', 'eggplant'], ['courgette', 'zucchini'],
   ['coriander leaf', 'cilantro'], ['capsicum', 'bell pepper'],
@@ -37,7 +37,7 @@ function toAmerican(name) {
   return n;
 }
 
-// negationCleaned: удалить "without/no/not/minus/free from X", схлопнуть пробелы.
+// negationCleaned: remove "without/no/not/minus/free from X", collapse spaces.
 function negationClean(name) {
   return name
     .replace(/\b(without|no|not|minus|free\s+from)\s+\w+/gi, '')
@@ -45,7 +45,7 @@ function negationClean(name) {
     .trim();
 }
 
-// >5 значимых слов → составное блюдо, USDA пропускаем.
+// >5 significant words → composite dish, skip USDA.
 function isCompositeDish(negationCleaned) {
   const stop = ['with', 'and', 'the', 'from', 'for'];
   const significant = negationCleaned.toLowerCase().split(/\s+/)
@@ -53,7 +53,7 @@ function isCompositeDish(negationCleaned) {
   return significant.length > 5;
 }
 
-// UsdaCandidateBrief из USDA food (null если calories == 0).
+// UsdaCandidateBrief from a USDA food (null if calories == 0).
 function usdaCandidateBrief(food) {
   const nMap = new Map();
   for (const fn of food.foodNutrients ?? []) {
@@ -72,14 +72,14 @@ function usdaCandidateBrief(food) {
   };
 }
 
-// ── AI-обёртки (текстовая модель) ──
+// ── AI wrappers (text model) ──
 
 async function runIdentify(descriptionForAi, uiLang) {
   const prompt = buildIdentifyPrompt(descriptionForAi, uiLang);
   const text = await callOpenRouterWithRetry({
     messages: [{ role: 'user', content: prompt }], models: TEXT,
   });
-  // parseIdentityList: массив или один объект
+  // parseIdentityList: array or a single object
   const json = extractJSON(text);
   let parsed;
   try { parsed = JSON.parse(json); } catch { return []; }
@@ -123,7 +123,7 @@ async function askAiToPickUsdaCandidate(queryRu, queryEn, candidates) {
     const map = parseJSONMap(text);
     const raw = map.fdc_id;
     const id = typeof raw === 'number' ? raw : (typeof raw === 'string' ? parseInt(raw, 10) : null);
-    if (id == null || !candidates.some((c) => c.fdcId === id)) return null; // guard от галлюцинаций
+    if (id == null || !candidates.some((c) => c.fdcId === id)) return null; // guard against hallucinations
     return id;
   } catch {
     return null;
@@ -143,13 +143,13 @@ async function verifyUsdaPick(queryRu, queryEn, pick) {
       if (typeof v === 'string') return v.toLowerCase() === 'true';
       return false;
     };
-    return bool('is_same_product') && bool('macros_plausible'); // оба → true
+    return bool('is_same_product') && bool('macros_plausible'); // both → true
   } catch {
-    return false; // ошибка = REJECT
+    return false; // error = REJECT
   }
 }
 
-// Один раунд USDA-поиска: поиск → накопление кандидатов → pick (2 попытки) → verify.
+// One USDA search round: search → accumulate candidates → pick (2 attempts) → verify.
 async function runOneRound(query, queryRu, queryEn, allCandidates) {
   try {
     const res = await searchUsdaResponse(query, 25);
@@ -185,14 +185,14 @@ async function runOneRound(query, queryRu, queryEn, allCandidates) {
   }
 }
 
-// enrichFatDetails — USDA (локальный) затем AI, с валидацией. Порт логики iOS.
+// enrichFatDetails — USDA (local) then AI, with validation. Port of the iOS logic.
 export async function enrichFatDetails(nutrients, foodNameEn) {
   if ((nutrients.fat ?? 0) <= 0) return nutrients;
   if (!(nutrients.monounsaturated_fat === 0 && nutrients.polyunsaturated_fat === 0)) return nutrients;
 
   const current = { ...nutrients };
 
-  // Step 1: локальный USDA
+  // Step 1: local USDA
   try {
     const res = await searchUsdaResponse(foodNameEn, 5);
     const food = (res.foods ?? []).find((f) =>
@@ -207,9 +207,9 @@ export async function enrichFatDetails(nutrients, foodNameEn) {
       if (current.polyunsaturated_fat === 0) current.polyunsaturated_fat = nMap.get(NUTRIENT_ID.POLYUNSATURATED_FAT) ?? 0;
       if (current.cholesterol === 0) current.cholesterol = nMap.get(NUTRIENT_ID.CHOLESTEROL) ?? 0;
     }
-  } catch { /* молча */ }
+  } catch { /* silently */ }
 
-  // Step 2: AI если всё ещё пусто
+  // Step 2: AI if still empty
   if (current.monounsaturated_fat === 0 || current.polyunsaturated_fat === 0) {
     try {
       const text = await callOpenRouterWithRetry({
@@ -221,10 +221,10 @@ export async function enrichFatDetails(nutrients, foodNameEn) {
       if (current.monounsaturated_fat === 0) current.monounsaturated_fat = g('monounsaturated_fat');
       if (current.polyunsaturated_fat === 0) current.polyunsaturated_fat = g('polyunsaturated_fat');
       if (current.cholesterol === 0) current.cholesterol = g('cholesterol');
-    } catch { /* молча */ }
+    } catch { /* silently */ }
   }
 
-  // Валидация: сумма фракций <= total fat
+  // Validation: sum of fractions <= total fat
   const totalFat = current.fat;
   const fatSum = current.saturated_fat + current.monounsaturated_fat + current.polyunsaturated_fat;
   if (fatSum > totalFat && totalFat > 0) {
@@ -237,7 +237,7 @@ export async function enrichFatDetails(nutrients, foodNameEn) {
   current.monounsaturated_fat = Math.min(current.monounsaturated_fat, totalFat);
   current.polyunsaturated_fat = Math.min(current.polyunsaturated_fat, totalFat);
 
-  // Sentinel — чтобы не гонять enrichment повторно
+  // Sentinel — so as not to run enrichment again
   if (current.monounsaturated_fat === 0 && current.polyunsaturated_fat === 0) {
     current.monounsaturated_fat = 0.0001;
     current.polyunsaturated_fat = 0.0001;
@@ -245,7 +245,7 @@ export async function enrichFatDetails(nutrients, foodNameEn) {
   return current;
 }
 
-// correctDairyMacros — ГОСТ-коррекция макросов по % жирности. Порт логики iOS.
+// correctDairyMacros — GOST correction of macros by fat %. Port of the iOS logic.
 async function correctDairyMacros(nutrients, foodNameRu) {
   const percent = extractFatPercent(foodNameRu);
   if (percent == null) return nutrients;
@@ -260,7 +260,7 @@ async function correctDairyMacros(nutrients, foodNameRu) {
     if (protein == null || protein <= 0) return nutrients;
     const calories = typeof map.calories === 'number' ? map.calories : protein * 4 + fat * 9 + carbs * 4;
 
-    // Safety net: fat должен совпасть с percent из имени
+    // Safety net: fat must match the percent from the name
     const finalFat = Math.abs(fat - percent) / Math.max(percent, 0.5) > 0.15 ? percent : fat;
     const finalCalories = Math.abs(finalFat - fat) > 0.01
       ? protein * 4 + finalFat * 9 + carbs * 4 : calories;
@@ -284,7 +284,7 @@ async function correctDairyMacros(nutrients, foodNameRu) {
   }
 }
 
-// analyzeSingleDish (last-resort, без кэша) — целое блюдо через AI. Возвращает per100g.
+// analyzeSingleDish (last-resort, no cache) — whole dish via AI. Returns per100g.
 export async function analyzeSingleDish(dishName) {
   const text = await callOpenRouterWithRetry({
     messages: [{ role: 'user', content: buildSingleDishPrompt(dishName) }], models: TEXT,
@@ -299,14 +299,14 @@ export async function analyzeSingleDish(dishName) {
 }
 
 /**
- * Главный оркестратор текстового анализа.
- * @param {Array<{name:string, grams:number}>} items — уже спарсенные клиентом.
- * @param {string} uiLang — English name языка UI (напр. "German").
+ * Main text analysis orchestrator.
+ * @param {Array<{name:string, grams:number}>} items — already parsed by the client.
+ * @param {string} uiLang — English name of the UI language (e.g. "German").
  * @param {object} [opts] — { useCache=true }
  * @returns {Promise<Array>} results [{foodName, foodNameEn, weightGrams, nutrientsPer100g, fromCache}]
  */
 export async function analyzeFoodText(items, uiLang, { useCache = true } = {}) {
-  // Step 1: identify (ВСЕГДА) — descriptionForAi из items (вес как подсказка).
+  // Step 1: identify (ALWAYS) — descriptionForAi from items (weight as a hint).
   const descriptionForAi = items
     .map(({ name, grams }) => (grams > 0 ? `${name} ${Math.round(grams)}г` : name))
     .join(', ');
@@ -321,7 +321,7 @@ export async function analyzeFoodText(items, uiLang, { useCache = true } = {}) {
   const cachedResults = [];
   const aiPending = [];
 
-  // Cache lookup по keyEn (единственный кэш на сервере).
+  // Cache lookup by keyEn (the only cache on the server).
   for (const id of identities) {
     const nameRu = id.foodName || descriptionForAi;
     const nameEn = id.foodNameEn || id.foodName;
@@ -331,7 +331,7 @@ export async function analyzeFoodText(items, uiLang, { useCache = true } = {}) {
     if (cached) {
       let enriched = cached.nutrients;
       enriched = await enrichFatDetails(enriched, nameEn);
-      // обновляем кэш если fat-details дозаполнились
+      // update the cache if fat-details were topped up
       if (JSON.stringify(enriched) !== JSON.stringify(cached.nutrients)) {
         await saveToCache(nameEn, enriched, cached.source ?? 'usda');
       }
@@ -341,7 +341,7 @@ export async function analyzeFoodText(items, uiLang, { useCache = true } = {}) {
     }
   }
 
-  // Step 2: USDA loop для aiPending.
+  // Step 2: USDA loop for aiPending.
   for (const item of aiPending) {
     const isDairyPct = isDairyWithFatPercent(item.foodNameRu, item.foodNameEn);
     let nameForSearch = isDairyPct ? stripFatPercent(item.foodNameEn) : item.foodNameEn;
@@ -369,9 +369,9 @@ export async function analyzeFoodText(items, uiLang, { useCache = true } = {}) {
       if (selectedFood) break;
     }
 
-    // Детерминированный fallback: если AI-фразы не дали кандидата, а запрос содержит
-    // слово-состояние (baked/roasted/…), пробуем USDA-стандарт «cooked» и голое имя.
-    // Чинит рыбу/мясо, где USDA индексирует только «cooked» (напр. tuna baked → tuna cooked).
+    // Deterministic fallback: if the AI phrases produced no candidate, and the query contains
+    // a state word (baked/roasted/…), try the USDA-standard "cooked" and the bare name.
+    // Fixes fish/meat where USDA indexes only "cooked" (e.g. tuna baked → tuna cooked).
     if (!selectedFood) {
       const tokens = negationCleaned.toLowerCase().split(/\s+/).filter(Boolean);
       const stateWords = ['baked', 'roasted', 'fried', 'grilled', 'broiled', 'braised', 'stewed'];
@@ -398,7 +398,7 @@ export async function analyzeFoodText(items, uiLang, { useCache = true } = {}) {
     }
   }
 
-  // Step 3: batch AI для товаров без USDA.
+  // Step 3: batch AI for products without USDA.
   const needAi = aiPending.filter((it) => it.nutrientsPer100g == null);
   if (needAi.length > 0) {
     try {
@@ -408,10 +408,10 @@ export async function analyzeFoodText(items, uiLang, { useCache = true } = {}) {
       });
       const parsed = parseJSONArray(text);
       needAi.forEach((it, i) => { if (i < parsed.length) it.nutrientsPer100g = nutrientDataFromMap(parsed[i]); });
-    } catch { /* лог опущен */ }
+    } catch { /* log omitted */ }
   }
 
-  // Step 4: micro-fill для USDA-товаров с iodine < 0.01.
+  // Step 4: micro-fill for USDA products with iodine < 0.01.
   const needMicros = aiPending.filter((it) => it.nutrientsPer100g && (it.nutrientsPer100g.iodine ?? 0) < 0.01);
   if (needMicros.length > 0) {
     try {
@@ -421,10 +421,10 @@ export async function analyzeFoodText(items, uiLang, { useCache = true } = {}) {
       });
       const parsed = parseJSONArray(text);
       needMicros.forEach((it, i) => { if (i < parsed.length) it.nutrientsPer100g = fillMissingMicros(it.nutrientsPer100g, parsed[i]); });
-    } catch { /* лог опущен */ }
+    } catch { /* log omitted */ }
   }
 
-  // Step 5: last-resort + dairy correction + FAT-DETAILS на miss (наш фикс) + запись в кэш.
+  // Step 5: last-resort + dairy correction + FAT-DETAILS on miss (our fix) + write to cache.
   for (const item of aiPending) {
     let source = 'usda';
     if (item.nutrientsPer100g == null) {
@@ -432,7 +432,7 @@ export async function analyzeFoodText(items, uiLang, { useCache = true } = {}) {
         const { per100g } = await analyzeSingleDish(item.foodNameRu);
         item.nutrientsPer100g = per100g;
         source = 'ai';
-      } catch { /* лог опущен */ }
+      } catch { /* log omitted */ }
     } else if (needAi.includes(item)) {
       source = 'ai';
     }
@@ -441,14 +441,14 @@ export async function analyzeFoodText(items, uiLang, { useCache = true } = {}) {
       item.nutrientsPer100g = await correctDairyMacros(item.nutrientsPer100g, item.foodNameRu);
     }
 
-    // ФИКС асимметрии: fat-details сразу на miss, до записи в кэш → полная запись.
+    // ASYMMETRY FIX: fat-details immediately on a miss, before writing to the cache → a complete write.
     if (item.nutrientsPer100g) {
       item.nutrientsPer100g = await enrichFatDetails(item.nutrientsPer100g, item.foodNameEn);
       await saveToCache(item.foodNameEn, item.nutrientsPer100g, source);
     }
   }
 
-  // Build results — нутриенты на 100г (клиент масштабирует сам).
+  // Build results — nutrients per 100g (the client scales them itself).
   const allItems = [...cachedResults, ...aiPending];
   const zeroMacroOk = ['вода', 'water', 'чай', 'tea', 'кофе', 'coffee', 'herb', 'spice', 'vinegar', 'gelatin'];
   const results = [];
@@ -476,11 +476,11 @@ export async function analyzeFoodText(items, uiLang, { useCache = true } = {}) {
   return results;
 }
 
-// ── enrichMicros (single) — дозаполнение недостающих микро одним AI-вызовом.
-// Порт enrichMicrosWithAIPublic. Спрашивает ТОЛЬКО недостающие (==0, iodine<0.01).
+// ── enrichMicros (single) — tops up missing micros with a single AI call.
+// Port of enrichMicrosWithAIPublic. Asks ONLY for the missing ones (==0, iodine<0.01).
 export async function enrichMicros(nutrients, foodNameEn) {
   const { prompt } = buildEnrichMicrosPrompt(nutrients, foodNameEn);
-  if (!prompt) return nutrients; // ничего не отсутствует
+  if (!prompt) return nutrients; // nothing is missing
   try {
     const text = await callOpenRouterWithRetry({
       messages: [{ role: 'user', content: prompt }], models: TEXT,
@@ -493,9 +493,9 @@ export async function enrichMicros(nutrients, foodNameEn) {
 }
 
 /**
- * Фото: AI распознаёт имя+вес+нутриенты. Чистый AI, БЕЗ USDA, БЕЗ кэша.
- * @param {string} imageBase64 — JPEG в base64 (без data-URL префикса).
- * @param {string} uiLang — English name языка UI.
+ * Photo: AI recognizes name+weight+nutrients. Pure AI, NO USDA, NO cache.
+ * @param {string} imageBase64 — JPEG in base64 (without the data-URL prefix).
+ * @param {string} uiLang — English name of the UI language.
  * @returns {Promise<{foodName, foodNameEn, weightGrams, nutrientsPer100g}>}
  */
 export async function analyzePhoto(imageBase64, uiLang) {
@@ -512,7 +512,7 @@ export async function analyzePhoto(imageBase64, uiLang) {
   try {
     map = parseJSONMap(text);
   } catch {
-    // Модель не вернула JSON (напр. на фото не еда) → понятная ошибка клиенту.
+    // The model did not return JSON (e.g. the photo is not food) → a clear error to the client.
     const err = new Error('Не удалось распознать еду на фото');
     err.status = 422;
     throw err;
@@ -525,34 +525,34 @@ export async function analyzePhoto(imageBase64, uiLang) {
 }
 
 /**
- * Штрихкод: обогащение OFF-данных, полученных клиентом. НЕ пишем в общий кэш
- * (данные от клиента = недоверенные). Порт хвоста lookupBarcodeWithCache (после OFF).
- * @param {string} name — имя продукта (от OFF).
- * @param {object} offNutrients — нутриенты на 100г из OFF (могут быть неполными/нулевыми).
+ * Barcode: enrichment of OFF data received by the client. We do NOT write to the shared cache
+ * (data from the client = untrusted). Port of the tail of lookupBarcodeWithCache (after OFF).
+ * @param {string} name — product name (from OFF).
+ * @param {object} offNutrients — nutrients per 100g from OFF (may be incomplete/zero).
  * @returns {Promise<{name, nutrientsPer100g}>}
  */
 export async function enrichBarcode(name, offNutrients) {
   let per100g = { ...emptyNutrients(), ...offNutrients };
 
-  // Нулевые макросы → fallback на AI (целое блюдо по имени).
+  // Zero macros → fallback to AI (whole dish by name).
   if (per100g.calories === 0 && per100g.protein === 0 && per100g.fat === 0 && per100g.carbs === 0) {
     try {
       const { per100g: aiPer100g } = await analyzeSingleDish(name);
       per100g = aiPer100g;
-    } catch { /* оставляем OFF-данные как есть */ }
+    } catch { /* keep the OFF data as is */ }
   }
 
-  // Обогащение недостающих микро (OFF редко даёт витамины/минералы).
+  // Enrich the missing micros (OFF rarely provides vitamins/minerals).
   per100g = await enrichMicros(per100g, name);
-  // Обогащение разбивки жиров.
+  // Enrich the fat breakdown.
   per100g = await enrichFatDetails(per100g, name);
 
   return { name, nutrientsPer100g: per100g };
 }
 
 /**
- * Целое блюдо через AI (для фото со сменой имени). БЕЗ USDA, БЕЗ кэша.
- * Обёртка над analyzeSingleDish. Возвращает нутриенты на 100г.
+ * Whole dish via AI (for photos with a renamed item). NO USDA, NO cache.
+ * A wrapper over analyzeSingleDish. Returns nutrients per 100g.
  * @param {string} dishName
  * @returns {Promise<{foodNameEn, nutrientsPer100g}>}
  */

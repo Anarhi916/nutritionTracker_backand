@@ -1,4 +1,4 @@
-// POST /v1/norms — расчёт суточных норм (AI). Без кэша (индивидуально). Auth — задача 8.
+// POST /v1/norms — daily norms calculation (AI). No cache (individual). Auth — task 8.
 import { Router } from 'express';
 import { calculateNorms } from '../services/norms.js';
 
@@ -6,7 +6,7 @@ export const normsRouter = Router();
 
 /**
  * Body: { gender:'male'|'female', age, weight(kg), height(cm), goals }
- * Ответ: { norms: {...34 нутриента...} }
+ * Response: { norms: {...34 nutrients...} }
  */
 normsRouter.post('/v1/norms', async (req, res, next) => {
   try {

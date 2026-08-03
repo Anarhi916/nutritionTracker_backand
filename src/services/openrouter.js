@@ -1,10 +1,10 @@
-// Низкоуровневый клиент OpenRouter: forward запроса с серверным Bearer-ключом,
-// allowlist моделей, retry на 429/5xx. Единственная точка исходящих AI-вызовов.
-// См. ARCHITECTURE.md — все эндпоинты-оркестраторы дергают ТОЛЬКО этот модуль.
+// Low-level OpenRouter client: forwards the request with the server-side Bearer key,
+// model allowlist, retry on 429/5xx. The single point of outgoing AI calls.
+// See ARCHITECTURE.md — all orchestrator endpoints call ONLY this module.
 
 import { config } from '../config.js';
 
-const MAX_RETRIES = 2; // как в клиенте callOpenRouterWithRetry
+const MAX_RETRIES = 2; // same as in the client callOpenRouterWithRetry
 const RETRY_BASE_MS = 1000;
 
 class OpenRouterError extends Error {
@@ -20,13 +20,13 @@ function sleep(ms) {
 }
 
 /**
- * Один вызов OpenRouter. Тело — как слал клиент: {model, messages, temperature, max_tokens}.
+ * A single OpenRouter call. Body — as the client sent it: {model, messages, temperature, max_tokens}.
  * @param {object} opts
- * @param {Array} opts.messages — массив {role, content} (content: строка или массив частей).
- * @param {string} opts.model — модель (должна быть в allowlist).
+ * @param {Array} opts.messages — array of {role, content} (content: string or array of parts).
+ * @param {string} opts.model — model (must be in the allowlist).
  * @param {number} [opts.temperature=0.0]
  * @param {number} [opts.maxTokens=4096]
- * @returns {Promise<string>} содержимое choices[0].message.content.
+ * @returns {Promise<string>} the contents of choices[0].message.content.
  */
 export async function callOpenRouter({ messages, model, temperature = 0.0, maxTokens = 4096 }) {
   if (!config.models.allowed.includes(model)) {
@@ -75,11 +75,11 @@ export async function callOpenRouter({ messages, model, temperature = 0.0, maxTo
 }
 
 /**
- * Вызов с retry и перебором моделей из пула (как клиентский callOpenRouterWithRetry).
- * Retry на 429/5xx с бэкоффом; на каждой попытке берём следующую модель пула.
+ * Call with retry and cycling through models in the pool (like the client callOpenRouterWithRetry).
+ * Retry on 429/5xx with backoff; on each attempt we take the next model in the pool.
  * @param {object} opts
  * @param {Array} opts.messages
- * @param {string[]} opts.models — пул моделей (config.models.text/photo/norms).
+ * @param {string[]} opts.models — model pool (config.models.text/photo/norms).
  * @param {number} [opts.temperature]
  * @param {number} [opts.maxTokens]
  * @returns {Promise<string>}

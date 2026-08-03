@@ -1,28 +1,28 @@
-// Синхронизация данных пользователя между устройствами.
-// Стратегия: server-as-source-of-truth, last-write-wins по updated_at (клиентское время).
-// ВАЖНО: дельта-курсор (since/serverTime) считается по server_updated_at — серверным
-// часам, проставляемым при каждом upsert. Это устраняет зависимость от рассинхрона
-// часов между устройствами (иначе запись, созданная «в прошлом» по клиентским часам,
-// но загруженная позже, проскакивала бы мимо since). См. sync-architecture (memory).
+// Synchronization of user data across devices.
+// Strategy: server-as-source-of-truth, last-write-wins by updated_at (client time).
+// IMPORTANT: the delta cursor (since/serverTime) is computed by server_updated_at — the server
+// clock, set on every upsert. This removes the dependency on clock skew
+// between devices (otherwise a record created "in the past" by the client clock,
+// but uploaded later, would slip past since). See sync-architecture (memory).
 import { query, getPool } from '../db/pool.js';
 
-// --- Хелперы конвертации времени ---
+// --- Time conversion helpers ---
 
-// epoch-ms (число) → ISO для TIMESTAMPTZ; null-безопасно.
+// epoch-ms (number) → ISO for TIMESTAMPTZ; null-safe.
 function msToIso(ms) {
   if (ms == null) return null;
   return new Date(Number(ms)).toISOString();
 }
 
-// TIMESTAMPTZ (Date из pg) → epoch-ms число; null-безопасно.
+// TIMESTAMPTZ (Date from pg) → epoch-ms number; null-safe.
 function isoToMs(d) {
   if (d == null) return null;
   return d instanceof Date ? d.getTime() : new Date(d).getTime();
 }
 
 // ---------------------------------------------------------------------------
-// PUSH — принять дельту от клиента и записать (last-write-wins по updated_at).
-// server_updated_at на каждый успешный upsert = now() (серверные часы).
+// PUSH — accept the delta from the client and write it (last-write-wins by updated_at).
+// server_updated_at on each successful upsert = now() (server clock).
 // body: { profile?, norms?, entries?[], foodCache?[] }
 // ---------------------------------------------------------------------------
 export async function pushSync(userId, body) {
@@ -31,7 +31,7 @@ export async function pushSync(userId, body) {
   try {
     await client.query('BEGIN');
 
-    // --- profile (1 ряд) ---
+    // --- profile (1 row) ---
     if (body.profile) {
       const p = body.profile;
       await client.query(
@@ -48,7 +48,7 @@ export async function pushSync(userId, body) {
       );
     }
 
-    // --- norms (1 ряд) ---
+    // --- norms (1 row) ---
     if (body.norms) {
       const n = body.norms;
       await client.query(
@@ -62,7 +62,7 @@ export async function pushSync(userId, body) {
       );
     }
 
-    // --- food entries (много рядов, идемпотентность по client_id) ---
+    // --- food entries (many rows, idempotency by client_id) ---
     if (Array.isArray(body.entries)) {
       for (const e of body.entries) {
         if (!e.clientId) continue;
@@ -85,7 +85,7 @@ export async function pushSync(userId, body) {
       }
     }
 
-    // --- food cache / saved products (идемпотентность по key_normalized) ---
+    // --- food cache / saved products (idempotency by key_normalized) ---
     if (Array.isArray(body.foodCache)) {
       for (const c of body.foodCache) {
         if (!c.keyNormalized) continue;
@@ -116,10 +116,10 @@ export async function pushSync(userId, body) {
 }
 
 // ---------------------------------------------------------------------------
-// PULL — отдать данные пользователя. since=null → всё (full); иначе дельта по
-// server_updated_at (серверные часы). serverTime в ответе = МАКСИМАЛЬНЫЙ
-// server_updated_at среди отданных строк (не Date.now()!) — это гарантирует, что
-// курсор клиента не «перепрыгнет» запись, загруженную с другого устройства позже.
+// PULL — return the user's data. since=null → everything (full); otherwise a delta by
+// server_updated_at (server clock). serverTime in the response = the MAXIMUM
+// server_updated_at among the returned rows (not Date.now()!) — this guarantees the
+// client cursor does not "jump over" a record uploaded from another device later.
 // ---------------------------------------------------------------------------
 export async function pullSync(userId, sinceMs) {
   const sinceIso = sinceMs != null ? msToIso(sinceMs) : null;
@@ -135,9 +135,9 @@ export async function pullSync(userId, sinceMs) {
              ORDER BY server_updated_at ASC`, params),
   ]);
 
-  // serverTime = максимум server_updated_at среди всех отданных строк.
-  // Если ничего не отдали — курсор клиента не двигаем (возвращаем прежний since,
-  // либо now() при full-pull без данных — там двигать безопасно).
+  // serverTime = the maximum server_updated_at among all returned rows.
+  // If nothing was returned — do not move the client cursor (return the previous since,
+  // or now() on a full-pull with no data — moving it there is safe).
   let maxServerMs = sinceMs ?? 0;
   const bump = (d) => { const ms = isoToMs(d); if (ms != null && ms > maxServerMs) maxServerMs = ms; };
   for (const r of profileRes.rows) bump(r.server_updated_at);
@@ -187,7 +187,7 @@ export async function pullSync(userId, sinceMs) {
     deletedAt: isoToMs(r.deleted_at),
   }));
 
-  // full-pull без данных → отдаём now() (двигать курсор безопасно, записей нет).
+  // full-pull with no data → return now() (moving the cursor is safe, there are no records).
   const serverTime = (sinceMs == null && maxServerMs === 0) ? Date.now() : maxServerMs;
   return { profile, norms, entries, foodCache, serverTime };
 }

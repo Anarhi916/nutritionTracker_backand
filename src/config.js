@@ -1,4 +1,4 @@
-// Централизованная конфигурация: читает .env, задаёт дефолты, allowlist моделей.
+// Centralized configuration: reads .env, sets defaults, model allowlist.
 import dotenv from 'dotenv';
 
 dotenv.config();
@@ -25,13 +25,13 @@ export const config = {
       'https://openrouter.ai/api/v1/chat/completions',
   },
 
-  // Allowlist моделей — модифицированный клиент не сможет заказать дорогую модель.
-  // Пулы соответствуют клиентскому APIConfig (см. ARCHITECTURE.md).
+  // Model allowlist — a modified client cannot request an expensive model.
+  // Pools match the client APIConfig (see ARCHITECTURE.md).
   models: {
     text: ['google/gemini-2.5-flash-lite'],
     photo: ['google/gemini-2.5-flash'],
     norms: ['google/gemini-3.6-flash', 'google/gemini-2.5-pro'],
-    // объединённый allowlist для валидации входящих запросов
+    // combined allowlist for validating incoming requests
     allowed: [
       'google/gemini-2.5-flash-lite',
       'google/gemini-2.5-flash',
@@ -57,22 +57,22 @@ export const config = {
     googleProjectNumber: process.env.GOOGLE_CLOUD_PROJECT_NUMBER ?? '',
   },
 
-  // Пользовательские аккаунты (Sign in with Apple / Google) + наша сессия (JWT).
+  // User accounts (Sign in with Apple / Google) + our session (JWT).
   accounts: {
-    // Секрет для подписи НАШИХ access-JWT (HS256). Обязателен в prod.
+    // Secret for signing OUR access JWTs (HS256). Required in prod.
     jwtSecret: process.env.JWT_SECRET ?? 'dev-insecure-jwt-secret-change-me',
-    accessTtlSec: parseInt(process.env.ACCESS_TTL_SEC ?? '900', 10),          // 15 мин
-    refreshTtlSec: parseInt(process.env.REFRESH_TTL_SEC ?? '2592000', 10),    // 30 дней
+    accessTtlSec: parseInt(process.env.ACCESS_TTL_SEC ?? '900', 10),          // 15 min
+    refreshTtlSec: parseInt(process.env.REFRESH_TTL_SEC ?? '2592000', 10),    // 30 days
 
     apple: {
-      // aud для нативного iOS = bundle ID; для web/Android-flow = Services ID.
+      // aud for native iOS = bundle ID; for web/Android flow = Services ID.
       bundleId: process.env.APPLE_BUNDLE_ID ?? 'com.nutrition.tracker',
       servicesId: process.env.APPLE_SERVICES_ID ?? '',
       teamId: process.env.APPLE_TEAM_ID ?? '',
       keyId: process.env.APPLE_KEY_ID ?? '',
-      // Содержимое .p8 (ES256 private key). \n экранированы в .env — восстанавливаем.
+      // Contents of .p8 (ES256 private key). \n is escaped in .env — restore it.
       privateKey: (process.env.APPLE_PRIVATE_KEY ?? '').replace(/\\n/g, '\n'),
-      // redirect_uri для web-OAuth flow (Android): наш backend-эндпоинт.
+      // redirect_uri for web OAuth flow (Android): our backend endpoint.
       redirectUri: process.env.APPLE_REDIRECT_URI ?? '',
     },
 

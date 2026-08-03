@@ -1,11 +1,11 @@
-// 33 нутриент-ID USDA FDC, которые читает клиент (см. ARCHITECTURE.md).
-// Клиент декодирует ответ по nutrientId → value; метаданные (name/number/unit)
-// держим здесь статически, чтобы не раздувать БД.
+// 33 USDA FDC nutrient IDs that the client reads (see ARCHITECTURE.md).
+// The client decodes the response by nutrientId → value; metadata (name/number/unit)
+// is kept here statically so as not to bloat the DB.
 //
-// Ключ = имя поля в клиентском NutrientData (snake_case, как в промптах/JSON).
+// Key = field name in the client NutrientData (snake_case, as in prompts/JSON).
 
 export const NUTRIENTS = [
-  // --- Макросы ---
+  // --- Macros ---
   { id: 1008, key: 'calories', name: 'Energy', number: '208', unit: 'KCAL' },
   { id: 1003, key: 'protein', name: 'Protein', number: '203', unit: 'G' },
   { id: 1004, key: 'fat', name: 'Total lipid (fat)', number: '204', unit: 'G' },
@@ -16,7 +16,7 @@ export const NUTRIENTS = [
   { id: 1005, key: 'carbs', name: 'Carbohydrate, by difference', number: '205', unit: 'G' },
   { id: 1079, key: 'fiber', name: 'Fiber, total dietary', number: '291', unit: 'G' },
 
-  // --- Витамины ---
+  // --- Vitamins ---
   { id: 1106, key: 'vitamin_a', name: 'Vitamin A, RAE', number: '320', unit: 'UG' },
   { id: 1165, key: 'vitamin_b1', name: 'Thiamin', number: '404', unit: 'MG' },
   { id: 1166, key: 'vitamin_b2', name: 'Riboflavin', number: '405', unit: 'MG' },
@@ -31,7 +31,7 @@ export const NUTRIENTS = [
   { id: 1109, key: 'vitamin_e', name: 'Vitamin E (alpha-tocopherol)', number: '323', unit: 'MG' },
   { id: 1185, key: 'vitamin_k', name: 'Vitamin K (phylloquinone)', number: '430', unit: 'UG' },
 
-  // --- Минералы ---
+  // --- Minerals ---
   { id: 1087, key: 'calcium', name: 'Calcium, Ca', number: '301', unit: 'MG' },
   { id: 1089, key: 'iron', name: 'Iron, Fe', number: '303', unit: 'MG' },
   { id: 1090, key: 'magnesium', name: 'Magnesium, Mg', number: '304', unit: 'MG' },
@@ -45,11 +45,11 @@ export const NUTRIENTS = [
   { id: 1100, key: 'iodine', name: 'Iodine, I', number: '314', unit: 'UG' },
 ];
 
-// Set из ID для быстрой фильтрации при импорте.
+// Set of IDs for fast filtering during import.
 export const NUTRIENT_ID_SET = new Set(NUTRIENTS.map((n) => n.id));
 
-// Константы nutrient-ID по UPPER_SNAKE имени (как UsdaFoodNutrient в клиенте).
-// Используется buildNutrientsFromUsda: NUTRIENT_ID.ENERGY === 1008 и т.д.
+// nutrient-ID constants by UPPER_SNAKE name (as UsdaFoodNutrient in the client).
+// Used by buildNutrientsFromUsda: NUTRIENT_ID.ENERGY === 1008, etc.
 export const NUTRIENT_ID = {
   ENERGY: 1008, PROTEIN: 1003, FAT: 1004, SATURATED_FAT: 1258,
   MONOUNSATURATED_FAT: 1292, POLYUNSATURATED_FAT: 1293, CHOLESTEROL: 1253,
@@ -61,17 +61,17 @@ export const NUTRIENT_ID = {
   MANGANESE: 1101, SELENIUM: 1103, IODINE: 1100,
 };
 
-// Map id → метаданные (для сборки UsdaSearchResponse в задаче 4).
+// Map id → metadata (for building UsdaSearchResponse in task 4).
 export const NUTRIENT_BY_ID = new Map(NUTRIENTS.map((n) => [n.id, n]));
 
-// Map nutrient_number (строка, напр. '208') → FDC id (1008).
-// FNDDS/survey ссылается на нутриенты по nutrient_nbr, а не по внутреннему id;
-// импортёр нормализует их к нашему id.
+// Map nutrient_number (string, e.g. '208') → FDC id (1008).
+// FNDDS/survey references nutrients by nutrient_nbr, not by the internal id;
+// the importer normalizes them to our id.
 export const NUTRIENT_ID_BY_NUMBER = new Map(NUTRIENTS.map((n) => [n.number, n.id]));
 
-// Резолвит сырое значение из food_nutrient.csv к нашему FDC id.
-// Foundation/SR: значение уже = id (1008). FNDDS: значение = nutrient_nbr (208).
-// Возвращает id из нашего набора или null.
+// Resolves a raw value from food_nutrient.csv to our FDC id.
+// Foundation/SR: value is already = id (1008). FNDDS: value = nutrient_nbr (208).
+// Returns an id from our set or null.
 export function resolveNutrientId(raw) {
   const asInt = parseInt(raw, 10);
   if (Number.isFinite(asInt) && NUTRIENT_ID_SET.has(asInt)) return asInt;
@@ -79,7 +79,7 @@ export function resolveNutrientId(raw) {
   return byNbr ?? null;
 }
 
-// Типы данных USDA, которые импортируем (эталонная еда, не Branded).
+// USDA data types that we import (reference foods, not Branded).
 export const ALLOWED_DATA_TYPES = new Set([
   'foundation_food',
   'sr_legacy_food',

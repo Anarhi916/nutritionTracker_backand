@@ -1,5 +1,5 @@
-// GET /health — liveness (процесс жив). Статус БД — в теле (readiness-инфо).
-// Возвращает 200, пока процесс жив; поле db показывает доступность Postgres.
+// GET /health — liveness (process is alive). DB status — in the body (readiness info).
+// Returns 200 while the process is alive; the db field shows Postgres availability.
 import { Router } from 'express';
 import { pingDb } from '../db/pool.js';
 

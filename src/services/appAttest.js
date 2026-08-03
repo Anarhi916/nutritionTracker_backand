@@ -1,16 +1,16 @@
-// App Attest (iOS) верификация. КАРКАС — реальная крипто-проверка включается перед
-// релизом (нужны боевые устройства: аттестацию нельзя воспроизвести на симуляторе).
+// App Attest (iOS) verification. SKELETON — real crypto verification is enabled before
+// release (requires physical devices: attestation cannot be reproduced on a simulator).
 //
-// Полный flow (при активации):
-//   1. Регистрация ключа: клиент шлёт attestation object (CBOR) + keyId.
-//      Валидируем: цепочку сертификатов до Apple App Attest Root CA, что nonce
-//      совпадает, App ID (APPLE_TEAM_ID + APPLE_BUNDLE_ID), counter=0. Сохраняем
-//      публичный ключ по keyId.
-//   2. Каждый запрос: клиент шлёт assertion (подпись тела + счётчик). Проверяем
-//      подпись публичным ключом, что счётчик монотонно растёт (анти-replay).
+// Full flow (once activated):
+//   1. Key registration: the client sends the attestation object (CBOR) + keyId.
+//      We validate: the certificate chain up to the Apple App Attest Root CA, that the nonce
+//      matches, the App ID (APPLE_TEAM_ID + APPLE_BUNDLE_ID), counter=0. We store
+//      the public key by keyId.
+//   2. Each request: the client sends an assertion (signature of the body + counter). We verify
+//      the signature with the public key, that the counter grows monotonically (anti-replay).
 //
-// Заголовки (при активации): X-Attest-KeyId, X-Attest-Assertion, X-Attest-Object (при регистрации).
-// Библиотеки-кандидаты: node-app-attest / собственная реализация на основе Apple docs.
+// Headers (once activated): X-Attest-KeyId, X-Attest-Assertion, X-Attest-Object (on registration).
+// Candidate libraries: node-app-attest / a custom implementation based on Apple docs.
 import { config } from '../config.js';
 
 /**
@@ -18,9 +18,9 @@ import { config } from '../config.js';
  * @returns {Promise<{ok:boolean, deviceId?:string, reason?:string}>}
  */
 export async function verifyAppAttest(req) {
-  // TODO(release): реализовать верификацию attestation/assertion.
-  // Сейчас prod-режим намеренно отклоняет iOS, пока крипто-проверка не активирована,
-  // чтобы НЕ пропускать неаутентифицированные запросы под видом рабочей защиты.
+  // TODO(release): implement attestation/assertion verification.
+  // For now prod mode deliberately rejects iOS until crypto verification is activated,
+  // so as NOT to let unauthenticated requests through under the guise of working protection.
   if (!config.auth.appleTeamId) {
     return { ok: false, reason: 'App Attest не сконфигурирован (APPLE_TEAM_ID пуст)' };
   }

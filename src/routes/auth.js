@@ -1,5 +1,5 @@
-// Публичный роутер аутентификации: вход через Apple/Google, refresh, logout, удаление.
-// Монтируется в server.js ДО authMiddleware — эти эндпоинты не требуют существующей сессии.
+// Public authentication router: login via Apple/Google, refresh, logout, deletion.
+// Mounted in server.js BEFORE authMiddleware — these endpoints do not require an existing session.
 import { Router } from 'express';
 import { verifyGoogleIdToken, exchangeGoogleCode } from '../services/googleIdentity.js';
 import { verifyAppleIdentityToken, exchangeAppleCode } from '../services/appleIdentity.js';
@@ -9,8 +9,8 @@ import { requireUser } from '../middleware/requireUser.js';
 
 export const authRouter = Router();
 
-// POST /v1/auth/google  { idToken, nonce? }  — прямой id_token (устаревший)
-//                    или { code, codeVerifier, redirectUri } — PKCE authorization code flow
+// POST /v1/auth/google  { idToken, nonce? }  — direct id_token (deprecated)
+//                    or { code, codeVerifier, redirectUri } — PKCE authorization code flow
 authRouter.post('/v1/auth/google', async (req, res, next) => {
   try {
     const { idToken, nonce, code, codeVerifier, redirectUri, clientId } = req.body ?? {};
@@ -80,7 +80,7 @@ authRouter.post('/v1/auth/logout', async (req, res, next) => {
   }
 });
 
-// DELETE /v1/auth/account — удаление аккаунта (требование Apple). Нужен Bearer.
+// DELETE /v1/auth/account — account deletion (Apple requirement). Requires Bearer.
 authRouter.delete('/v1/auth/account', requireUser, async (req, res, next) => {
   try {
     await revokeAllForUser(req.userId);

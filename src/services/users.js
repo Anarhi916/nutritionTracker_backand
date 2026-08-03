@@ -1,19 +1,19 @@
-// Работа с таблицей users: upsert по провайдеру, связывание Apple+Google по email.
+// Working with the users table: upsert by provider, linking Apple+Google by email.
 import { query } from '../db/pool.js';
 
 /**
- * Найти/создать пользователя по данным провайдера.
- * provider: 'apple' | 'google'. Возвращает users.id.
+ * Find/create a user from provider data.
+ * provider: 'apple' | 'google'. Returns users.id.
  *
- * Логика связывания:
- *  1) есть ряд с этим *_sub → это он, обновляем last_login (+ email если пуст).
- *  2) иначе если есть email и ряд с таким email → доклеиваем *_sub к нему.
- *  3) иначе создаём новый ряд.
+ * Linking logic:
+ *  1) there is a row with this *_sub → it's them, update last_login (+ email if empty).
+ *  2) otherwise if there is an email and a row with that email → attach *_sub to it.
+ *  3) otherwise create a new row.
  */
 export async function upsertUserFromProvider(provider, sub, email) {
   const subCol = provider === 'apple' ? 'apple_sub' : 'google_sub';
 
-  // 1) по sub
+  // 1) by sub
   const bySub = await query(`SELECT id FROM users WHERE ${subCol} = $1`, [sub]);
   if (bySub.rows.length) {
     const id = bySub.rows[0].id;
@@ -26,7 +26,7 @@ export async function upsertUserFromProvider(provider, sub, email) {
     return id;
   }
 
-  // 2) связывание по email (если провайдер дал email и такой уже есть)
+  // 2) linking by email (if the provider gave an email and one already exists)
   if (email) {
     const byEmail = await query(
       `SELECT id FROM users WHERE email = $1 AND ${subCol} IS NULL LIMIT 1`,
@@ -42,7 +42,7 @@ export async function upsertUserFromProvider(provider, sub, email) {
     }
   }
 
-  // 3) новый пользователь
+  // 3) new user
   const created = await query(
     `INSERT INTO users (${subCol}, email, last_login_at)
        VALUES ($1, $2, now()) RETURNING id`,
@@ -51,12 +51,12 @@ export async function upsertUserFromProvider(provider, sub, email) {
   return created.rows[0].id;
 }
 
-/** Удалить аккаунт целиком (каскадно снесёт refresh_tokens). */
+/** Delete the account entirely (cascades to refresh_tokens). */
 export async function deleteUser(userId) {
   await query(`DELETE FROM users WHERE id = $1`, [userId]);
 }
 
-// Существует ли пользователь (для requireUser — токен валиден, но аккаунт мог быть удалён).
+// Whether the user exists (for requireUser — the token is valid, but the account may have been deleted).
 export async function userExists(userId) {
   const { rows } = await query(`SELECT 1 FROM users WHERE id = $1`, [userId]);
   return rows.length > 0;

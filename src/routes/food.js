@@ -1,4 +1,4 @@
-// Роуты /v1/food/*: analyze (текст), enrich (штрихкод), photo, dish.
+// Routes /v1/food/*: analyze (text), enrich (barcode), photo, dish.
 import { Router } from 'express';
 import {
   analyzeFoodText, analyzePhoto, enrichBarcode, analyzeDish,
@@ -9,10 +9,10 @@ export const foodRouter = Router();
 /**
  * POST /v1/food/analyze
  * Body: { items: [{name, grams}], uiLang, useCache? }
- *   items  — уже спарсенные клиентом (имя + граммы; вес парсит клиент).
- *   uiLang — English name языка UI (напр. "German"); дефолт "English".
- * Ответ: { results: [{foodName, foodNameEn, weightGrams, nutrientsPer100g, fromCache}] }
- *   Нутриенты на 100 г — клиент масштабирует на вес сам.
+ *   items  — already parsed by the client (name + grams; the client parses the weight).
+ *   uiLang — English name of the UI language (e.g. "German"); default "English".
+ * Response: { results: [{foodName, foodNameEn, weightGrams, nutrientsPer100g, fromCache}] }
+ *   Nutrients per 100 g — the client scales them by weight itself.
  */
 foodRouter.post('/v1/food/analyze', async (req, res, next) => {
   try {
@@ -21,7 +21,7 @@ foodRouter.post('/v1/food/analyze', async (req, res, next) => {
     if (!Array.isArray(items) || items.length === 0) {
       return res.status(400).json({ error: 'bad_request', message: 'items[] обязателен' });
     }
-    // Нормализуем вход: name обязателен, grams опционален (0 = не указан).
+    // Normalize the input: name is required, grams is optional (0 = not specified).
     const norm = [];
     for (const it of items) {
       const name = typeof it?.name === 'string' ? it.name.trim() : '';
@@ -45,10 +45,10 @@ foodRouter.post('/v1/food/analyze', async (req, res, next) => {
 });
 
 /**
- * POST /v1/food/enrich — штрихкод. Клиент сам сходил в OFF (свой IP), шлёт результат.
- * Body: { name, nutrientsPer100g }  (OFF-нутриенты на 100г, могут быть неполными).
- * Сервер дообогащает микро+жиры (AI). НЕ пишет в общий кэш (данные от клиента).
- * Ответ: { name, nutrientsPer100g }
+ * POST /v1/food/enrich — barcode. The client itself went to OFF (its own IP) and sends the result.
+ * Body: { name, nutrientsPer100g }  (OFF nutrients per 100g, may be incomplete).
+ * The server further enriches micros + fats (AI). Does NOT write to the shared cache (data from the client).
+ * Response: { name, nutrientsPer100g }
  */
 foodRouter.post('/v1/food/enrich', async (req, res, next) => {
   try {
@@ -65,9 +65,9 @@ foodRouter.post('/v1/food/enrich', async (req, res, next) => {
 });
 
 /**
- * POST /v1/food/photo — распознавание по фото. Чистый AI, без USDA, без кэша.
- * Body: { imageBase64, uiLang }  (JPEG в base64, без data-URL префикса).
- * Ответ: { foodName, foodNameEn, weightGrams, nutrientsPer100g }
+ * POST /v1/food/photo — recognition from a photo. Pure AI, no USDA, no cache.
+ * Body: { imageBase64, uiLang }  (JPEG in base64, without the data-URL prefix).
+ * Response: { foodName, foodNameEn, weightGrams, nutrientsPer100g }
  */
 foodRouter.post('/v1/food/photo', async (req, res, next) => {
   try {
@@ -87,9 +87,9 @@ foodRouter.post('/v1/food/photo', async (req, res, next) => {
 });
 
 /**
- * POST /v1/food/dish — целое блюдо через AI (для фото со сменой имени). Без USDA, без кэша.
+ * POST /v1/food/dish — whole dish via AI (for photos with a renamed item). No USDA, no cache.
  * Body: { dishName }
- * Ответ: { foodNameEn, nutrientsPer100g }
+ * Response: { foodNameEn, nutrientsPer100g }
  */
 foodRouter.post('/v1/food/dish', async (req, res, next) => {
   try {

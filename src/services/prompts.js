@@ -1,9 +1,9 @@
-// Все AI-промпты и хелперы, портированные ДОСЛОВНО из iOS NutritionRepository.swift
-// (источник истины). НЕ переписывать тексты промптов — они определяют качество AI.
-// См. ARCHITECTURE.md. Хелперы (extractJSON, nutrientDataFromMap, buildNutrientsFromUsda,
-// коррекции) — точная копия логики Swift.
+// All AI prompts and helpers, ported VERBATIM from iOS NutritionRepository.swift
+// (the source of truth). DO NOT rewrite the prompt texts — they determine AI quality.
+// See ARCHITECTURE.md. Helpers (extractJSON, nutrientDataFromMap, buildNutrientsFromUsda,
+// corrections) — an exact copy of the Swift logic.
 
-// ── Порядок 34 полей нутриентов (snake_case ключи AI ↔ поля NutrientData) ──
+// ── Order of the 34 nutrient fields (snake_case AI keys ↔ NutrientData fields) ──
 export const NUTRIENT_KEYS = [
   'calories', 'protein', 'fat', 'saturated_fat', 'monounsaturated_fat',
   'polyunsaturated_fat', 'cholesterol', 'carbs', 'fiber',
@@ -14,7 +14,7 @@ export const NUTRIENT_KEYS = [
   'selenium', 'iodine',
 ];
 
-// Микронутриенты (24 поля) — то, что дозаполняет micro-fill.
+// Micronutrients (24 fields) — what micro-fill tops up.
 export const MICRO_KEYS = [
   'vitamin_a', 'vitamin_b1', 'vitamin_b2', 'vitamin_b3', 'vitamin_b5',
   'vitamin_b6', 'vitamin_b7', 'vitamin_b9', 'vitamin_b12', 'vitamin_c',
@@ -23,7 +23,7 @@ export const MICRO_KEYS = [
   'selenium', 'iodine',
 ];
 
-// Единицы для enrichMicros (single) — дословно из Swift (vitamin_a с 'mcg RAE').
+// Units for enrichMicros (single) — verbatim from Swift (vitamin_a with 'mcg RAE').
 const MICRO_UNITS = {
   vitamin_a: 'mcg RAE', vitamin_b1: 'mg', vitamin_b2: 'mg', vitamin_b3: 'mg',
   vitamin_b5: 'mg', vitamin_b6: 'mg', vitamin_b7: 'mcg', vitamin_b9: 'mcg',
@@ -33,7 +33,7 @@ const MICRO_UNITS = {
   copper: 'mg', manganese: 'mg', selenium: 'mcg', iodine: 'mcg',
 };
 
-// ── extractJSON: чистит markdown-фенсы, находит первый {/[ и парный закрывающий ──
+// ── extractJSON: strips markdown fences, finds the first {/[ and its matching close ──
 export function extractJSON(text) {
   let cleaned = String(text).replaceAll('```json', '').replaceAll('```', '').trim();
   const firstIdx = [...cleaned].findIndex((c) => c === '{' || c === '[');
@@ -48,21 +48,21 @@ export function extractJSON(text) {
   return cleaned;
 }
 
-// Парсит JSON-объект из ответа AI (после extractJSON).
+// Parses a JSON object from the AI response (after extractJSON).
 export function parseJSONMap(text) {
   return JSON.parse(extractJSON(text));
 }
 
-// Парсит JSON-массив объектов (batch/micro).
+// Parses a JSON array of objects (batch/micro).
 export function parseJSONArray(text) {
   const parsed = JSON.parse(extractJSON(text));
   if (Array.isArray(parsed)) return parsed;
-  // иногда AI оборачивает в объект — берём первый вложенный массив
+  // sometimes the AI wraps it in an object — take the first nested array
   for (const v of Object.values(parsed)) if (Array.isArray(v)) return v;
   return [];
 }
 
-// Число из map по ключу (NSNumber-семантика: число, строка-число, иначе 0).
+// Number from map by key (NSNumber semantics: number, numeric string, otherwise 0).
 function num(map, key) {
   const v = map[key];
   if (typeof v === 'number' && Number.isFinite(v)) return v;
@@ -73,21 +73,21 @@ function num(map, key) {
   return 0;
 }
 
-// ── nutrientDataFromMap: JSON snake_case → объект нутриентов (34 поля, все на 100г) ──
+// ── nutrientDataFromMap: JSON snake_case → nutrient object (34 fields, all per 100g) ──
 export function nutrientDataFromMap(map) {
   const n = {};
   for (const key of NUTRIENT_KEYS) n[key] = num(map, key);
   return n;
 }
 
-// Пустой набор нутриентов (все нули).
+// Empty nutrient set (all zeros).
 export function emptyNutrients() {
   const n = {};
   for (const key of NUTRIENT_KEYS) n[key] = 0;
   return n;
 }
 
-// ── fillMissingMicros: заполняет ТОЛЬКО нулевые микро-поля из map (iodine < 0.01) ──
+// ── fillMissingMicros: fills ONLY zero micro fields from map (iodine < 0.01) ──
 export function fillMissingMicros(nutrients, map) {
   const n = { ...nutrients };
   for (const key of MICRO_KEYS) {
@@ -100,18 +100,19 @@ export function fillMissingMicros(nutrients, map) {
   return n;
 }
 
-// ══════════════════════ ПРОМПТЫ (дословный порт) ══════════════════════
+// ══════════════════════ PROMPTS (verbatim port) ══════════════════════
 
-// buildIdentifyPrompt — uiLang = English name языка UI (напр. "German").
+// buildIdentifyPrompt — uiLang = English name of the UI language (e.g. "German").
 export function buildIdentifyPrompt(description, uiLang) {
-  return `Определи ВСЕ продукты и их вес из описания. Описание может быть на любом языке.
-Если указано количество штук — рассчитай общий вес. Если вес не указан — оцени типичную порцию.
+  return `Identify ALL foods and their weights from the description. The description may be in any language.
+If a count of pieces is given, compute the total weight. If no weight is given, estimate a typical portion.
 
-ВАЖНО:
-- food_name — название продукта на языке "${uiLang}" (this is the app's UI language; translate the product name into ${uiLang} so it displays consistently)
-- food_name_en — ТОЧНЫЙ перевод на английский для поиска в USDA базе данных
+CRITICAL — output language for food_name:
+- food_name MUST be written in ${uiLang} (the app's UI language). Translate the product name INTO ${uiLang}.
+- Do NOT copy the language of these instructions. Even though the examples below use Russian/Ukrainian, the food_name you return must be in ${uiLang}, never Russian (unless ${uiLang} is Russian).
+- food_name_en — the EXACT English translation used to search the USDA database.
 
-Примеры правильного перевода:
+Translation examples (source language varies → English key):
 - "куриная отбивная" / "куряча відбивна" → "chicken breast cutlet"
 - "гречневая каша" / "гречана каша" → "buckwheat porridge"
 - "ячневая каша вареная" → "barley porridge cooked"
@@ -127,14 +128,14 @@ export function buildIdentifyPrompt(description, uiLang) {
 - "кава" / "кофе" → "coffee brewed"
 - "капучіно" / "капучино" → "coffee cappuccino"
 
-КРИТИЧЕСКИ ВАЖНО для мяса/птицы с указанием способа приготовления:
-"тушеная/тушена" для МЯСА = "braised" (НЕ "stew" — stew это блюдо с овощами и подливкой!)
-"жареная/смажена" для МЯСА = "fried" или "pan-fried"
-"запечённая/запечена" для МЯСА = "baked" или "roasted"
-"варёная/варена/отварная" для МЯСА = "cooked" или "boiled"
+CRITICAL for meat/poultry with a stated cooking method (food_name_en):
+"тушеная/тушена" (braised) for MEAT = "braised" (NOT "stew" — stew is a dish with vegetables and gravy!)
+"жареная/смажена" (fried) for MEAT = "fried" or "pan-fried"
+"запечённая/запечена" (baked) for MEAT = "baked" or "roasted"
+"варёная/варена/отварная" (boiled) for MEAT = "cooked" or "boiled"
 
-Примеры:
-- "говядина тушеная" / "яловичина тушкована" → "beef braised" (НЕ "beef stew"!)
+Examples:
+- "говядина тушеная" / "яловичина тушкована" → "beef braised" (NOT "beef stew"!)
 - "свинина тушеная" / "свинина тушкована" → "pork braised"
 - "курица тушеная" / "курка тушкована" → "chicken braised"
 - "говядина жареная" / "яловичина смажена" → "beef pan-fried"
@@ -144,14 +145,14 @@ export function buildIdentifyPrompt(description, uiLang) {
 - "баранина тушеная" / "баранина тушкована" → "lamb braised"
 - "кролик тушеный" / "кролик тушкований" → "rabbit braised"
 
-ВАЖНО: слова "вареная"/"варена"/"варенная"/"варёная"/"отварная" ВСЕ означают "cooked" — всегда добавляй "cooked" в перевод!
+NOTE: the words "вареная"/"варена"/"варенная"/"варёная"/"отварная" ALL mean "cooked" — always add "cooked" to the translation!
 
-ВАЖНО для свежих овощей/фруктов/ягод/зелени:
-Если продукт — свежий овощ, фрукт, ягода, зелень или листовой салат,
-и в названии НЕ указан способ приготовления (вареный/жареный/тушёный/печёный/квашеный/маринованный/сушёный и т.п.),
-обязательно добавь "raw" в food_name_en. USDA по умолчанию выдаёт салаты и обработанные варианты вместо свежего продукта.
+CRITICAL for fresh vegetables/fruits/berries/greens (food_name_en):
+If the product is a fresh vegetable, fruit, berry, herb, or leafy salad,
+and NO cooking method is stated (boiled/fried/braised/baked/fermented/pickled/dried, etc.),
+you MUST add "raw" to food_name_en. USDA by default returns salads and processed variants instead of the fresh product.
 
-Примеры:
+Examples:
 - "капуста" → "cabbage raw"
 - "морковь" / "морква" → "carrot raw"
 - "яблоко" / "яблуко" → "apple raw"
@@ -188,31 +189,31 @@ export function buildIdentifyPrompt(description, uiLang) {
 - "манго" → "mango raw"
 - "киви" → "kiwi raw"
 
-ВАЖНО для USDA — используй АМЕРИКАНСКИЙ английский, не британский:
-- "beet", НЕ "beetroot" (beetroot = только чипсы в USDA)
-- "eggplant", НЕ "aubergine"
-- "zucchini", НЕ "courgette"
-- "cilantro", НЕ "coriander" (для зелени)
-- "bell pepper", НЕ "capsicum"
+For USDA — use AMERICAN English, not British:
+- "beet", NOT "beetroot" (beetroot = only chips in USDA)
+- "eggplant", NOT "aubergine"
+- "zucchini", NOT "courgette"
+- "cilantro", NOT "coriander" (for the herb)
+- "bell pepper", NOT "capsicum"
 
-НЕ добавляй "raw" для:
-- мяса/рыбы/птицы/яиц (без указания способа — подразумевается приготовленное)
-- круп, макарон, бобовых, хлеба
-- молочных продуктов, сыров, орехов, семян, масел
-- готовых блюд, консервов, продуктов прошедших обработку
-- если в названии уже есть способ приготовления или "сырой"/"свіжий"/"raw"/"fresh"
+Do NOT add "raw" for:
+- meat/fish/poultry/eggs (without a method — assumed cooked)
+- grains, pasta, legumes, bread
+- dairy, cheese, nuts, seeds, oils
+- ready dishes, canned goods, processed products
+- if the name already has a cooking method or "raw"/"fresh"
 
-ВАЖНО для составных блюд (салаты, супы):
-- НЕ перечисляй все ингредиенты в food_name_en — используй КОРОТКОЕ узнаваемое название
-- Если блюдо "без заправки" / "без майонеза" — НЕ включай "without dressing" в food_name_en
+For composite dishes (salads, soups):
+- do NOT list all ingredients in food_name_en — use a SHORT recognizable name
+- if the dish is "without dressing" / "without mayo" — do NOT include "without dressing" in food_name_en
 
-Описание: ${description}
+Description: ${description}
 
-Верни ТОЛЬКО JSON массив (даже если продукт один):
-[{"food_name": "<product name in the app UI language>", "food_name_en": "<EXACT English translation for USDA search>", "weight_grams": <число>}]`;
+Return ONLY a JSON array (even for a single product):
+[{"food_name": "<product name in ${uiLang}>", "food_name_en": "<EXACT English translation for USDA search>", "weight_grams": <number>}]`;
 }
 
-// generateUsdaSearchQueries — вход: queryRu (ориг. язык) + queryEn (англ.).
+// generateUsdaSearchQueries — input: queryRu (orig. language) + queryEn (English).
 export function buildUsdaQueriesPrompt(queryRu, queryEn) {
   return `You are a USDA Food Data Central (FDC) database search expert. Generate 2-3 English search queries that will find the correct USDA FDC entry for the given food.
 
@@ -259,7 +260,7 @@ Return ONLY a JSON array of English strings:
 ["query1", "query2"]`;
 }
 
-// askAiToPickUsdaCandidate — list = пронумерованные кандидаты (per 100g).
+// askAiToPickUsdaCandidate — list = numbered candidates (per 100g).
 export function buildPickPrompt(queryRu, queryEn, list) {
   return `You are a nutrition expert selecting the single best USDA Food Data Central entry that matches a user's food query.
 
@@ -308,7 +309,7 @@ Return ONLY a JSON object:
 {"fdc_id": <chosen id, or null if none of the candidates match well>, "reason": "<one short sentence explaining the pick or why nothing fit>"}`;
 }
 
-// verifyUsdaPick — адверсариальная проверка одного выбранного кандидата.
+// verifyUsdaPick — adversarial check of a single selected candidate.
 export function buildVerifyPrompt(queryRu, queryEn, pick) {
   const fmt = (v, d = 1) => Number(v ?? 0).toFixed(d);
   return `You are a nutrition-safety reviewer. Someone selected a USDA entry as the match for a user's food query. Your job is to REJECT it if the entry is NOT the same biological product / species / dish, even if the names are lexically similar.
@@ -332,7 +333,7 @@ Return ONLY a JSON object:
 {"is_same_product": <true|false>, "macros_plausible": <true|false>, "reason": "<one short sentence>"}`;
 }
 
-// buildBatchNutrientPrompt — foodsList: нумерованный список "N. name (per 100g)".
+// buildBatchNutrientPrompt — foodsList: numbered list "N. name (per 100g)".
 export function buildBatchNutrientPrompt(foodsList, count) {
   return `You are a professional nutritionist. Provide nutritional values PER 100 GRAMS for EACH food below.
 Return ONLY a JSON array with one object per food, in the SAME ORDER.
@@ -349,7 +350,7 @@ Return format (array of ${count} objects):
 [{"calories": <kcal>, "protein": <g>, "fat": <g>, "saturated_fat": <g>, "monounsaturated_fat": <g>, "polyunsaturated_fat": <g>, "cholesterol": <mg>, "carbs": <g>, "fiber": <g>, "vitamin_a": <mcg>, "vitamin_b1": <mg>, "vitamin_b2": <mg>, "vitamin_b3": <mg>, "vitamin_b5": <mg>, "vitamin_b6": <mg>, "vitamin_b7": <mcg>, "vitamin_b9": <mcg>, "vitamin_b12": <mcg>, "vitamin_c": <mg>, "vitamin_d": <mcg>, "vitamin_e": <mg>, "vitamin_k": <mcg>, "calcium": <mg>, "iron": <mg>, "magnesium": <mg>, "phosphorus": <mg>, "potassium": <mg>, "sodium": <mg>, "zinc": <mg>, "copper": <mg>, "manganese": <mg>, "selenium": <mcg>, "iodine": <mcg>}]`;
 }
 
-// buildMicroFillPrompt — foodsList: нумерованный список "N. name" (без суффикса).
+// buildMicroFillPrompt — foodsList: numbered list "N. name" (without a suffix).
 export function buildMicroFillPrompt(foodsList, count) {
   return `For each food below, provide ALL micronutrients PER 100 GRAMS using USDA reference values.
 Return ONLY a JSON array with one object per food, in the SAME ORDER.
@@ -363,8 +364,8 @@ Return format (array of ${count} objects):
 [{"vitamin_a": <mcg>, "vitamin_b1": <mg>, "vitamin_b2": <mg>, "vitamin_b3": <mg>, "vitamin_b5": <mg>, "vitamin_b6": <mg>, "vitamin_b7": <mcg>, "vitamin_b9": <mcg>, "vitamin_b12": <mcg>, "vitamin_c": <mg>, "vitamin_d": <mcg>, "vitamin_e": <mg>, "vitamin_k": <mcg>, "calcium": <mg>, "iron": <mg>, "magnesium": <mg>, "phosphorus": <mg>, "potassium": <mg>, "sodium": <mg>, "zinc": <mg>, "copper": <mg>, "manganese": <mg>, "selenium": <mcg>, "iodine": <mcg>}]`;
 }
 
-// enrichMicros (single) — строит список недостающих (== 0, iodine < 0.01) + промпт.
-// Возвращает {prompt, missing}. Если missing пуст — prompt === null.
+// enrichMicros (single) — builds a list of missing ones (== 0, iodine < 0.01) + the prompt.
+// Returns {prompt, missing}. If missing is empty — prompt === null.
 export function buildEnrichMicrosPrompt(nutrients, foodNameEn) {
   const missing = [];
   for (const key of MICRO_KEYS) {
@@ -378,7 +379,7 @@ Return ONLY JSON, e.g.: {"vitamin_a": 45, "calcium": 11}`;
   return { prompt, missing };
 }
 
-// enrichFatDetails — AI-промпт разбивки жиров (fat > 0, mono==0 && poly==0).
+// enrichFatDetails — AI prompt for fat breakdown (fat > 0, mono==0 && poly==0).
 export function buildFatDetailsPrompt(foodNameEn, totalFat) {
   return `For the food product "${foodNameEn}" with total fat ${totalFat}g per 100g, estimate the fat breakdown.
 Return ONLY a JSON object:
@@ -390,7 +391,7 @@ Rules:
 - Use established nutritional data for this food`;
 }
 
-// analyzeSingleDish — целое блюдо, food_name_en + 34 поля.
+// analyzeSingleDish — whole dish, food_name_en + 34 fields.
 export function buildSingleDishPrompt(dishName) {
   return `You are a professional nutritionist. Provide nutritional values PER 100 GRAMS for this COMPLETE DISH (do NOT split into ingredients):
 "${dishName}"
@@ -403,7 +404,7 @@ Return ONLY a JSON object with these fields:
 {"food_name_en": "<English translation>", "calories": <kcal>, "protein": <g>, "fat": <g>, "saturated_fat": <g>, "monounsaturated_fat": <g>, "polyunsaturated_fat": <g>, "cholesterol": <mg>, "carbs": <g>, "fiber": <g>, "vitamin_a": <mcg>, "vitamin_b1": <mg>, "vitamin_b2": <mg>, "vitamin_b3": <mg>, "vitamin_b5": <mg>, "vitamin_b6": <mg>, "vitamin_b7": <mcg>, "vitamin_b9": <mcg>, "vitamin_b12": <mcg>, "vitamin_c": <mg>, "vitamin_d": <mcg>, "vitamin_e": <mg>, "vitamin_k": <mcg>, "calcium": <mg>, "iron": <mg>, "magnesium": <mg>, "phosphorus": <mg>, "potassium": <mg>, "sodium": <mg>, "zinc": <mg>, "copper": <mg>, "manganese": <mg>, "selenium": <mcg>, "iodine": <mcg>}`;
 }
 
-// correctDairyMacros (ГОСТ) — percent из имени.
+// correctDairyMacros (GOST) — percent from the name.
 export function buildDairyPrompt(foodNameRu, percent) {
   return `You are a professional nutritionist. The user entered a dairy product following the Russian/Ukrainian GOST standard, where the percentage in the name is grams of fat per 100g of the final product (NOT % of milkfat in the source milk, NOT USDA cottage cheese variants).
 
@@ -425,7 +426,7 @@ Examples for calibration (per 100g):
 The fat value MUST equal ${percent}. Calories MUST satisfy: protein*4 + fat*9 + carbs*4 ≈ calories.`;
 }
 
-// identifyAndAnalyzeFoodFromPhoto — uiLang = English name языка UI.
+// identifyAndAnalyzeFoodFromPhoto — uiLang = English name of the UI language.
 export function buildPhotoPrompt(uiLang) {
   return `You are a professional nutritionist. Look at this food photo and:
 1. Identify the dish/food name IN ${uiLang.toUpperCase()} (detailed, including ingredients)
@@ -456,7 +457,7 @@ Calculate daily norms and return ONLY a JSON object with this EXACT structure (a
 {"calories": <number>, "protein": <grams>, "fat": <grams>, "saturated_fat": <grams>, "monounsaturated_fat": <grams>, "polyunsaturated_fat": <grams>, "cholesterol": <mg>, "carbs": <grams>, "fiber": <grams>, "vitamin_a": <mcg>, "vitamin_b1": <mg>, "vitamin_b2": <mg>, "vitamin_b3": <mg>, "vitamin_b5": <mg>, "vitamin_b6": <mg>, "vitamin_b7": <mcg>, "vitamin_b9": <mcg>, "vitamin_b12": <mcg>, "vitamin_c": <mg>, "vitamin_d": <mcg>, "vitamin_e": <mg>, "vitamin_k": <mcg>, "calcium": <mg>, "iron": <mg>, "magnesium": <mg>, "phosphorus": <mg>, "potassium": <mg>, "sodium": <mg>, "zinc": <mg>, "copper": <mg, e.g. 0.9>, "manganese": <mg, e.g. 2.3>, "selenium": <mcg>, "iodine": <mcg>}`;
 }
 
-// sanitizeNormUnits — фикс единиц норм (медь/марганец mcg→mg, селен mg→mcg).
+// sanitizeNormUnits — fixes norm units (copper/manganese mcg→mg, selenium mg→mcg).
 export function sanitizeNormUnits(n) {
   const r = { ...n };
   if (r.copper > 10) r.copper /= 1000.0;
@@ -465,7 +466,7 @@ export function sanitizeNormUnits(n) {
   return r;
 }
 
-// извлечение % жирности из имени (0..100).
+// extraction of fat % from the name (0..100).
 export function extractFatPercent(foodName) {
   const m = String(foodName).match(/(\d+(?:[.,]\d+)?)\s*%/);
   if (!m) return null;
@@ -474,7 +475,7 @@ export function extractFatPercent(foodName) {
   return p;
 }
 
-// убирает "% жирности" из имени для поиска в USDA по общему имени.
+// strips the "fat %" from the name for USDA search by the general name.
 export function stripFatPercent(foodName) {
   return String(foodName)
     .replace(/\s*\d+(?:[.,]\d+)?\s*%\s*/g, ' ')
@@ -490,7 +491,7 @@ const DAIRY_FAT_KEYWORDS = [
   'ryazhenka', 'yogurt', 'yoghurt', 'cream', 'buttermilk',
 ];
 
-// true если dairy-продукт с явным % жирности (твёрдые сыры исключены).
+// true if a dairy product with an explicit fat % (hard cheeses excluded).
 export function isDairyWithFatPercent(foodName, englishName = '') {
   const lower = `${foodName} ${englishName}`.toLowerCase();
   const hasKeyword = DAIRY_FAT_KEYWORDS.some((k) => lower.includes(k));
@@ -503,9 +504,9 @@ export function isDairyWithFatPercent(foodName, englishName = '') {
   return extractFatPercent(foodName) !== null || extractFatPercent(englishName) !== null;
 }
 
-// buildNutrientsFromUsda — извлекает NutrientData из USDA food + все проверки.
-// Возвращает объект нутриентов ИЛИ null (если отбраковано).
-// nMap: Map<nutrientId, value>. usdaNutrientById: как в db/nutrients.js (id→поле).
+// buildNutrientsFromUsda — extracts NutrientData from a USDA food + all checks.
+// Returns a nutrient object OR null (if rejected).
+// nMap: Map<nutrientId, value>. usdaNutrientById: as in db/nutrients.js (id→field).
 import { NUTRIENT_ID } from '../db/nutrients.js';
 
 export function buildNutrientsFromUsda(food, query, negationCleaned) {

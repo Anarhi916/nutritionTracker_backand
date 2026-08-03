@@ -1,6 +1,6 @@
-// CLI-тестер ранжирования usdaSearch. Печатает топ-N кандидатов для запросов.
-// Запуск:  node scripts/test-search.js "buckwheat cooked" "chicken breast" ...
-// Без аргументов — прогоняет встроенный набор.
+// CLI tester for usdaSearch ranking. Prints the top-N candidates for queries.
+// Run:  node scripts/test-search.js "buckwheat cooked" "chicken breast" ...
+// Without arguments — runs the built-in set.
 
 import { searchFoods } from '../src/services/usdaSearch.js';
 import { closePool } from '../src/db/pool.js';

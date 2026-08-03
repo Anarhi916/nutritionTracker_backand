@@ -1,6 +1,6 @@
-// Оценщик качества ранжирования usdaSearch на размеченном наборе.
-// Читает cases из scripts/testset.json: [{query, expectRegex, note}].
-// Печатает top-1 / top-5 hit rate и список провалов.
+// Quality evaluator for usdaSearch ranking on a labeled set.
+// Reads cases from scripts/testset.json: [{query, expectRegex, note}].
+// Prints top-1 / top-5 hit rate and the list of failures.
 
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';

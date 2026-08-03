@@ -1,4 +1,4 @@
-// Postgres connection pool (stateless-friendly). Ленивая инициализация.
+// Postgres connection pool (stateless-friendly). Lazy initialization.
 import pg from 'pg';
 import { config } from '../config.js';
 
@@ -20,7 +20,7 @@ export async function query(text, params) {
   return getPool().query(text, params);
 }
 
-// Пинг для health-чека. Возвращает true/false, не бросает.
+// Ping for health-check. Returns true/false, does not throw.
 export async function pingDb() {
   try {
     await getPool().query('SELECT 1');

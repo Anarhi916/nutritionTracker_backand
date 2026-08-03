@@ -1,18 +1,18 @@
-// Play Integrity (Android) верификация. КАРКАС — реальная проверка включается перед
-// релизом (нужен Play-подписанный APK + Google Cloud credentials).
+// Play Integrity (Android) verification. SKELETON — real verification is enabled before
+// release (requires a Play-signed APK + Google Cloud credentials).
 //
-// Полный flow (при активации):
-//   1. Клиент запрашивает Integrity Token у Play Integrity API (с nonce от сервера).
-//   2. Клиент шлёт токен на сервер (X-Integrity-Token).
-//   3. Сервер расшифровывает/верифицирует токен через Google Play Integrity API
-//      (google-auth-library + Play Integrity decode endpoint или локальная расшифровка
-//      сервер-ключом). Проверяем:
+// Full flow (once activated):
+//   1. The client requests an Integrity Token from the Play Integrity API (with a server nonce).
+//   2. The client sends the token to the server (X-Integrity-Token).
+//   3. The server decrypts/verifies the token via the Google Play Integrity API
+//      (google-auth-library + Play Integrity decode endpoint or local decryption
+//      with a server key). We check:
 //        - appRecognitionVerdict == PLAY_RECOGNIZED
 //        - packageName == GOOGLE_PACKAGE_NAME
-//        - nonce совпадает (анти-replay)
-//        - (опц.) deviceRecognitionVerdict / MEETS_DEVICE_INTEGRITY
+//        - nonce matches (anti-replay)
+//        - (opt.) deviceRecognitionVerdict / MEETS_DEVICE_INTEGRITY
 //
-// Заголовки (при активации): X-Integrity-Token, X-Integrity-Nonce.
+// Headers (once activated): X-Integrity-Token, X-Integrity-Nonce.
 import { config } from '../config.js';
 
 /**
@@ -20,8 +20,8 @@ import { config } from '../config.js';
  * @returns {Promise<{ok:boolean, deviceId?:string, reason?:string}>}
  */
 export async function verifyPlayIntegrity(req) {
-  // TODO(release): реализовать верификацию Integrity Token.
-  // Сейчас prod-режим намеренно отклоняет Android, пока проверка не активирована.
+  // TODO(release): implement Integrity Token verification.
+  // For now prod mode deliberately rejects Android until verification is activated.
   if (!config.auth.googleProjectNumber) {
     return { ok: false, reason: 'Play Integrity не сконфигурирован (GOOGLE_CLOUD_PROJECT_NUMBER пуст)' };
   }

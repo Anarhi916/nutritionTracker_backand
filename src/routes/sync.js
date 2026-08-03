@@ -1,10 +1,10 @@
-// Роуты синхронизации /v1/sync/*. req.userId уже проставлен requireUser (глобально на /v1).
+// Synchronization routes /v1/sync/*. req.userId is already set by requireUser (globally on /v1).
 import { Router } from 'express';
 import { pushSync, pullSync } from '../services/sync.js';
 
 export const syncRouter = Router();
 
-// POST /v1/sync/push — принять дельту клиента.
+// POST /v1/sync/push — accept the client delta.
 // body: { profile?, norms?, entries?[], foodCache?[] }
 syncRouter.post('/v1/sync/push', async (req, res, next) => {
   try {
@@ -18,7 +18,7 @@ syncRouter.post('/v1/sync/push', async (req, res, next) => {
   }
 });
 
-// GET /v1/sync/pull?since=<epoch-ms> — отдать данные (full если since отсутствует).
+// GET /v1/sync/pull?since=<epoch-ms> — return data (full if since is absent).
 syncRouter.get('/v1/sync/pull', async (req, res, next) => {
   try {
     const sinceRaw = req.query.since;

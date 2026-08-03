@@ -1,4 +1,4 @@
-// Сессионный слой: наш access-JWT (HS256) + refresh-токены (в БД храним sha256).
+// Session layer: our access-JWT (HS256) + refresh tokens (we store sha256 in the DB).
 import { SignJWT, jwtVerify } from 'jose';
 import { randomBytes, createHash } from 'node:crypto';
 import { config } from '../config.js';
@@ -10,7 +10,7 @@ function sha256(raw) {
   return createHash('sha256').update(raw).digest('hex');
 }
 
-/** Выпустить access-JWT (короткий) + refresh-токен (случайный, хэш в БД). */
+/** Issue an access-JWT (short-lived) + a refresh token (random, hash in the DB). */
 export async function issueTokens(userId) {
   const now = Math.floor(Date.now() / 1000);
   const accessToken = await new SignJWT({ sub: userId })
@@ -33,14 +33,14 @@ export async function issueTokens(userId) {
   };
 }
 
-/** Проверить access-JWT. Возвращает userId или бросает. */
+/** Verify the access-JWT. Returns userId or throws. */
 export async function verifyAccess(token) {
   const { payload } = await jwtVerify(token, secretKey);
   if (!payload.sub) throw new Error('нет sub');
   return String(payload.sub);
 }
 
-/** Ротация refresh: валидируем старый, удаляем, выдаём новую пару. */
+/** Refresh rotation: validate the old one, delete it, issue a new pair. */
 export async function rotateRefresh(rawRefresh) {
   const hash = sha256(rawRefresh);
   const { rows } = await query(
@@ -55,12 +55,12 @@ export async function rotateRefresh(rawRefresh) {
   return issueTokens(rows[0].user_id);
 }
 
-/** Отозвать один refresh-токен (logout). */
+/** Revoke a single refresh token (logout). */
 export async function revokeRefresh(rawRefresh) {
   await query(`DELETE FROM refresh_tokens WHERE token_hash = $1`, [sha256(rawRefresh)]);
 }
 
-/** Отозвать все refresh-токены пользователя. */
+/** Revoke all of a user's refresh tokens. */
 export async function revokeAllForUser(userId) {
   await query(`DELETE FROM refresh_tokens WHERE user_id = $1`, [userId]);
 }

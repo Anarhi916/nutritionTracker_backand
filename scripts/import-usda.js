@@ -1,9 +1,9 @@
-// Импорт USDA FDC CSV → Postgres.
-// Импортирует Foundation + SR Legacy + FNDDS (эталонная еда, не Branded).
-// Фильтрует food_nutrient только по нужным 33 нутриент-ID (см. db/nutrients.js).
+// Import USDA FDC CSV → Postgres.
+// Imports Foundation + SR Legacy + FNDDS (reference foods, not Branded).
+// Filters food_nutrient only by the needed 33 nutrient IDs (see db/nutrients.js).
 //
-// Запуск:  npm run import-usda
-// Данные ожидаются в scripts/usda-data/<распакованные папки>/ (food.csv, food_nutrient.csv).
+// Run:  npm run import-usda
+// Data is expected in scripts/usda-data/<unpacked folders>/ (food.csv, food_nutrient.csv).
 
 import { createReadStream } from 'node:fs';
 import { readdir, readFile } from 'node:fs/promises';
@@ -19,7 +19,7 @@ const SCHEMA_PATH = path.join(__dirname, '..', 'src', 'db', 'schema.sql');
 
 const BATCH_SIZE = 1000;
 
-// --- Минимальный парсер одной CSV-строки (кавычки + запятые внутри) ---
+// --- Minimal parser for a single CSV line (quotes + commas inside) ---
 function parseCsvLine(line) {
   const out = [];
   let field = '';
@@ -50,7 +50,7 @@ function parseCsvLine(line) {
   return out;
 }
 
-// Батч-вставка foods
+// Batch insert of foods
 async function flushFoods(client, rows) {
   if (rows.length === 0) return;
   const values = [];
@@ -67,7 +67,7 @@ async function flushFoods(client, rows) {
   );
 }
 
-// Батч-вставка food_nutrients
+// Batch insert of food_nutrients
 async function flushNutrients(client, rows) {
   if (rows.length === 0) return;
   const values = [];
@@ -136,13 +136,13 @@ async function importNutrients(client, filePath, keptFdcIds) {
     total++;
     const cols = parseCsvLine(line);
     // food_nutrient.csv: id, fdc_id, nutrient_id, amount, ...
-    // Foundation/SR: колонка 2 = FDC nutrient id (1008). FNDDS: = nutrient_nbr (208).
+    // Foundation/SR: column 2 = FDC nutrient id (1008). FNDDS: = nutrient_nbr (208).
     const fdcId = parseInt(cols[1], 10);
     const value = parseFloat(cols[3]);
     if (!Number.isFinite(fdcId)) continue;
-    const nutrientId = resolveNutrientId(cols[2]); // нормализуем к нашему id
-    if (nutrientId === null) continue; // только нужные нутриенты
-    if (!keptFdcIds.has(fdcId)) continue; // только для импортированной еды
+    const nutrientId = resolveNutrientId(cols[2]); // normalize to our id
+    if (nutrientId === null) continue; // only the needed nutrients
+    if (!keptFdcIds.has(fdcId)) continue; // only for imported foods
     kept++;
     batch.push({ fdcId, nutrientId, value: Number.isFinite(value) ? value : null });
     if (batch.length >= BATCH_SIZE) {
@@ -158,12 +158,12 @@ async function main() {
   const pool = getPool();
   const client = await pool.connect();
   try {
-    // 1. Применить схему
+    // 1. Apply the schema
     console.log('Применяю schema.sql...');
     const schema = await readFile(SCHEMA_PATH, 'utf8');
     await client.query(schema);
 
-    // 2. Найти распакованные папки датасетов
+    // 2. Find the unpacked dataset folders
     const entries = await readdir(DATA_DIR, { withFileTypes: true });
     const dirs = entries
       .filter((e) => e.isDirectory() && e.name.startsWith('FoodData_Central'))
@@ -177,7 +177,7 @@ async function main() {
 
     const keptFdcIds = new Set();
 
-    // 3. Сначала все foods (наполняем keptFdcIds), потом все nutrients
+    // 3. First all foods (populate keptFdcIds), then all nutrients
     for (const dir of dirs) {
       console.log(`\n[${path.basename(dir)}] foods...`);
       await importFoods(client, path.join(dir, 'food.csv'), keptFdcIds);
@@ -187,7 +187,7 @@ async function main() {
       await importNutrients(client, path.join(dir, 'food_nutrient.csv'), keptFdcIds);
     }
 
-    // 4. Итоговые счётчики
+    // 4. Final counters
     const foodsCount = await client.query('SELECT count(*) FROM foods');
     const nutrientsCount = await client.query('SELECT count(*) FROM food_nutrients');
     console.log('\n=== ГОТОВО ===');

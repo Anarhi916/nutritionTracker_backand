@@ -1,13 +1,13 @@
-// Rate-limit per-device. На старте — in-memory (единственное не-stateless место;
-// при горизонтальном масштабировании заменить на Redis — см. ARCHITECTURE.md).
-// Скользящее окно: не более RATE_LIMIT_MAX запросов за RATE_LIMIT_WINDOW_MS на device.
+// Per-device rate-limit. Initially — in-memory (the only non-stateless place;
+// replace with Redis for horizontal scaling — see ARCHITECTURE.md).
+// Sliding window: no more than RATE_LIMIT_MAX requests per RATE_LIMIT_WINDOW_MS per device.
 import { config } from '../config.js';
 import { deviceIdFrom } from './auth.js';
 
-// deviceId → массив timestamp'ов запросов в текущем окне.
+// deviceId → array of request timestamps in the current window.
 const hits = new Map();
 
-// Периодическая чистка старых записей, чтобы Map не рос бесконечно.
+// Periodic cleanup of stale entries so the Map does not grow indefinitely.
 const CLEANUP_INTERVAL_MS = 5 * 60 * 1000;
 const cleanupTimer = setInterval(() => {
   const cutoff = Date.now() - config.rateLimit.windowMs;
@@ -17,7 +17,7 @@ const cleanupTimer = setInterval(() => {
     else hits.set(id, fresh);
   }
 }, CLEANUP_INTERVAL_MS);
-cleanupTimer.unref?.(); // не держать процесс живым из-за таймера
+cleanupTimer.unref?.(); // do not keep the process alive because of the timer
 
 export function rateLimitMiddleware(req, res, next) {
   const id = req.deviceId || deviceIdFrom(req);
@@ -35,7 +35,7 @@ export function rateLimitMiddleware(req, res, next) {
   return next();
 }
 
-// Для тестов: сброс счётчиков.
+// For tests: reset counters.
 export function _resetRateLimit() {
   hits.clear();
 }

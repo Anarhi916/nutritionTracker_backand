@@ -1,5 +1,5 @@
-// Проверка Apple identity token (JWT) + web-OAuth обмен code→id_token (для Android).
-// Возвращает { sub, email }. См. план — фаза аккаунтов.
+// Verification of the Apple identity token (JWT) + web-OAuth exchange code→id_token (for Android).
+// Returns { sub, email }. See the plan — accounts phase.
 import { createRemoteJWKSet, jwtVerify, SignJWT, importPKCS8 } from 'jose';
 import { createHash } from 'node:crypto';
 import { config } from '../config.js';
@@ -7,16 +7,16 @@ import { config } from '../config.js';
 const APPLE_JWKS = createRemoteJWKSet(new URL('https://appleid.apple.com/auth/keys'));
 const APPLE_ISSUER = 'https://appleid.apple.com';
 
-// Допустимые aud: bundle ID (нативный iOS) + Services ID (web/Android flow).
+// Allowed aud: bundle ID (native iOS) + Services ID (web/Android flow).
 function appleAudiences() {
   return [config.accounts.apple.bundleId, config.accounts.apple.servicesId].filter(Boolean);
 }
 
 /**
- * Проверка Apple identity JWT (от нативного iOS ASAuthorization или из code-обмена).
+ * Verification of the Apple identity JWT (from native iOS ASAuthorization or from the code exchange).
  * @param {string} identityToken
- * @param {string} [expectedNonce] — Apple кладёт SHA256(nonce) в claim `nonce`; сверку
- *        удобнее делать на клиенте/по сырому nonce, поэтому здесь опционально.
+ * @param {string} [expectedNonce] — Apple puts SHA256(nonce) in the `nonce` claim; it is
+ *        more convenient to verify on the client/against the raw nonce, so here it is optional.
  * @returns {Promise<{ sub: string, email: string|null }>}
  */
 export async function verifyAppleIdentityToken(identityToken, expectedNonce) {
@@ -28,8 +28,8 @@ export async function verifyAppleIdentityToken(identityToken, expectedNonce) {
     issuer: APPLE_ISSUER,
     audience,
   });
-  // Нативный iOS кладёт в токен SHA256(nonce) hex; клиент шлёт сырой nonce.
-  // Сверяем и с сырым (web-flow), и с sha256 (нативный).
+  // Native iOS puts SHA256(nonce) hex in the token; the client sends the raw nonce.
+  // We check against both the raw one (web-flow) and sha256 (native).
   if (expectedNonce && payload.nonce) {
     const sha = createHash('sha256').update(expectedNonce).digest('hex');
     if (payload.nonce !== expectedNonce && payload.nonce !== sha) {
@@ -45,7 +45,7 @@ export async function verifyAppleIdentityToken(identityToken, expectedNonce) {
   };
 }
 
-// client_secret для Apple token endpoint — короткоживущий ES256-JWT, подписанный .p8.
+// client_secret for the Apple token endpoint — a short-lived ES256 JWT signed with the .p8.
 async function makeAppleClientSecret() {
   const { teamId, keyId, privateKey, servicesId } = config.accounts.apple;
   if (!teamId || !keyId || !privateKey || !servicesId) {
@@ -57,15 +57,15 @@ async function makeAppleClientSecret() {
     .setProtectedHeader({ alg: 'ES256', kid: keyId })
     .setIssuer(teamId)
     .setIssuedAt(now)
-    .setExpirationTime(now + 300) // 5 мин
+    .setExpirationTime(now + 300) // 5 min
     .setAudience(APPLE_ISSUER)
     .setSubject(servicesId)
     .sign(key);
 }
 
 /**
- * Web-OAuth flow (Android): обмениваем authorization code на id_token, затем верифицируем.
- * @param {string} code — authorization code от Apple.
+ * Web-OAuth flow (Android): exchange the authorization code for an id_token, then verify it.
+ * @param {string} code — authorization code from Apple.
  * @returns {Promise<{ sub: string, email: string|null }>}
  */
 export async function exchangeAppleCode(code) {

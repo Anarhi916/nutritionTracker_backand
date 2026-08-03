@@ -1,5 +1,5 @@
-// Bootstrap Express-сервера. На этом этапе (задача 2) — только /health и каркас.
-// Роуты food/norms и auth-middleware подключаются в задачах 5-8.
+// Express server bootstrap. At this stage (task 2) — only /health and the skeleton.
+// food/norms routes and auth middleware are wired up in tasks 5-8.
 import express from 'express';
 import { config } from './config.js';
 import { healthRouter } from './routes/health.js';
@@ -14,27 +14,27 @@ import { closePool } from './db/pool.js';
 
 const app = express();
 
-// Лимит тела поднят из-за base64-фото в /v1/food/photo (см. ARCHITECTURE.md).
+// Body limit raised because of base64 photos in /v1/food/photo (see ARCHITECTURE.md).
 app.use(express.json({ limit: '6mb' }));
 
-// /health — без auth (liveness-проба).
+// /health — no auth (liveness probe).
 app.use('/', healthRouter);
 
-// Аутентификация (вход/refresh/logout) — публичные эндпоинты, ДО authMiddleware.
-// (DELETE /v1/auth/account внутри роутера защищён своим requireUser.)
+// Authentication (login/refresh/logout) — public endpoints, BEFORE authMiddleware.
+// (DELETE /v1/auth/account inside the router is protected by its own requireUser.)
 app.use('/', authRouter);
 
-// Лёгкий лог входящих /v1/* (метод, путь, платформа) — помогает видеть трафик клиента.
+// Lightweight log of incoming /v1/* (method, path, platform) — helps observe client traffic.
 app.use('/v1', (req, _res, next) => {
   console.log(`[req] ${req.method} ${req.path} platform=${req.get('X-Platform') ?? '-'}`);
   next();
 });
 
-// Все /v1/* (кроме auth выше) — за attestation/dev-secret + rate-limit + пользовательской сессией.
-// authMiddleware ставит req.deviceId; requireUser ставит req.userId (Bearer).
+// All /v1/* (except auth above) — behind attestation/dev-secret + rate-limit + user session.
+// authMiddleware sets req.deviceId; requireUser sets req.userId (Bearer).
 app.use('/v1', authMiddleware, rateLimitMiddleware, requireUser);
 
-// Роуты /v1/*
+// /v1/* routes
 app.use('/', foodRouter);
 app.use('/', normsRouter);
 app.use('/', syncRouter);
@@ -44,7 +44,7 @@ app.use((_req, res) => {
   res.status(404).json({ error: 'not_found' });
 });
 
-// Единый обработчик ошибок
+// Unified error handler
 // eslint-disable-next-line no-unused-vars
 app.use((err, _req, res, _next) => {
   console.error('[server] необработанная ошибка:', err);
@@ -57,7 +57,7 @@ const server = app.listen(config.port, () => {
   );
 });
 
-// Аккуратное завершение
+// Graceful shutdown
 async function shutdown(signal) {
   console.log(`[server] получен ${signal}, завершаюсь...`);
   server.close(async () => {

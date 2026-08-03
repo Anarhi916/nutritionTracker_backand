@@ -1,5 +1,5 @@
-// Применяет src/db/schema.sql к основной БД (idempotent). Отдельно от import-usda.js,
-// чтобы не гонять импорт USDA ради обновления схемы (напр. добавление users).
+// Applies src/db/schema.sql to the main DB (idempotent). Separate from import-usda.js,
+// so as not to run the USDA import just to update the schema (e.g. adding users).
 //   node scripts/apply-schema.js          → DATABASE_URL
 //   node scripts/apply-schema.js --test    → TEST_DATABASE_URL
 import { readFile } from 'node:fs/promises';

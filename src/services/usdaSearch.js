@@ -1,32 +1,32 @@
-// Локальный поиск по USDA-копии в Postgres. Заменяет сетевой вызов
-// GET /fdc/v1/foods/search и собирает БАЙТ-ИДЕНТИЧНЫЙ UsdaSearchResponse.
+// Local search over the USDA copy in Postgres. Replaces the network call
+// GET /fdc/v1/foods/search and builds a BYTE-IDENTICAL UsdaSearchResponse.
 //
-// Задача ранжирования: нужный продукт должен попадать в топ (клиент/пайплайн
-// затем выбирает из топ-25 через AI). USDA описывает еду как
-// "Главный-ингредиент, модификатор, модификатор" — главное слово идёт первым.
+// Ranking task: the desired product must land in the top (the client/pipeline
+// then picks from the top-25 via AI). USDA describes food as
+// "Main-ingredient, modifier, modifier" — the main word comes first.
 //
-// См. ARCHITECTURE.md (self-host USDA), db/nutrients.js (метаданные нутриентов).
+// See ARCHITECTURE.md (self-host USDA), db/nutrients.js (nutrient metadata).
 
 import { query } from '../db/pool.js';
 import { NUTRIENT_BY_ID } from '../db/nutrients.js';
 
-// Стоп-слова, которые не должны сужать/искажать поиск.
+// Stop-words that should not narrow/distort the search.
 const STOPWORDS = new Set([
   'the', 'a', 'an', 'of', 'and', 'or', 'with', 'without', 'in', 'on',
 ]);
 
-// Слова-состояния приготовления. Совпадение по ним — сильный сигнал (raw≠cooked
-// меняет нутриенты в разы). Если запрос указывает состояние, а кандидат имеет
-// ПРОТИВОПОЛОЖНОЕ — штрафуем; если совпадает — бонус.
+// Cooking-state words. A match on them is a strong signal (raw≠cooked
+// changes nutrients drastically). If the query specifies a state, and the candidate has
+// the OPPOSITE — we penalize; if it matches — a bonus.
 const STATE_WORDS = new Set([
   'raw', 'cooked', 'boiled', 'roasted', 'fried', 'baked', 'grilled',
   'braised', 'steamed', 'stewed', 'dried', 'dehydrated', 'canned', 'frozen',
   'smoked', 'broiled',
 ]);
 
-// Слова-признаки составных блюд/продуктов переработки. Если запрос — чистый
-// ингредиент (нет этих слов), а кандидат их содержит — лёгкий штраф, чтобы
-// базовая форма ("Egg, whole") обгоняла блюда ("Egg burrito", "Bread, egg").
+// Words that mark composite dishes/processed products. If the query is a pure
+// ingredient (none of these words) but the candidate contains them — a light penalty, so that
+// the base form ("Egg, whole") outranks dishes ("Egg burrito", "Bread, egg").
 const DISH_WORDS = new Set([
   'salad', 'sandwich', 'burrito', 'soup', 'cake', 'pie', 'bread', 'roll',
   'bagel', 'bagels', 'muffin', 'cookie', 'cookies', 'nuggets', 'nugget', 'creamed',
@@ -35,15 +35,15 @@ const DISH_WORDS = new Set([
   'snacks', 'snack', 'cereal', 'flavored', 'lunchmeat', 'oil', 'glazed',
   'dry', 'mix',
 ]);
-// SR Legacy — самый полный референс базовых продуктов; Foundation — точные новые;
-// FNDDS — блюда/составные. Порядок влияет только на тай-брейк.
+// SR Legacy — the most complete reference of base products; Foundation — accurate new ones;
+// FNDDS — dishes/composites. The order only affects the tie-break.
 const DATA_TYPE_WEIGHT = {
   sr_legacy_food: 1.0,
   foundation_food: 0.98,
   survey_fndds_food: 0.96,
 };
 
-// Синонимы для частых расхождений «бытовое слово ↔ USDA-термин».
+// Synonyms for frequent mismatches "everyday word ↔ USDA term".
 const SYNONYMS = new Map([
   ['oatmeal', 'oats'],
   ['aubergine', 'eggplant'],
@@ -52,14 +52,14 @@ const SYNONYMS = new Map([
   ['prawn', 'shrimp'],
 ]);
 
-// Слова-«варианты», понижающие базовую релевантность, если их нет в запросе
-// (light/fat-free/reduced — не базовая форма продукта).
+// "Variant" words that lower base relevance if absent from the query
+// (light/fat-free/reduced — not the base form of the product).
 const VARIANT_WORDS = new Set([
   'light', 'lite', 'lowfat', 'nonfat', 'fat-free', 'reduced', 'diet',
   'unsweetened', 'sweetened', 'imitation', 'free', 'bran', 'raab',
 ]);
 
-// Нормализация строки: lower, убрать пунктуацию → массив слов + синонимы.
+// String normalization: lower, strip punctuation → array of words + synonyms.
 function tokenize(s) {
   return String(s)
     .toLowerCase()
@@ -69,9 +69,9 @@ function tokenize(s) {
     .map((w) => SYNONYMS.get(w) ?? w);
 }
 
-// Примитивный стемминг для сопоставления ед./мн. числа и -ed/-ing форм.
-// carrot↔carrots, tomato↔tomatoes, boil↔boiled. Не лингвистически точный —
-// достаточно, чтобы совпадали основы.
+// Primitive stemming to match singular/plural and -ed/-ing forms.
+// carrot↔carrots, tomato↔tomatoes, boil↔boiled. Not linguistically accurate —
+// enough for stems to match.
 function stem(w) {
   let s = w;
   if (s.length > 4 && s.endsWith('es')) s = s.slice(0, -2);
@@ -81,13 +81,13 @@ function stem(w) {
   return s;
 }
 
-// Значимые токены запроса (без стоп-слов).
+// Significant query tokens (without stop-words).
 function significantTokens(tokens) {
   return tokens.filter((t) => !STOPWORDS.has(t) && t.length > 1);
 }
 
-// Уровень совпадения двух слов: 2 = точное/стем, 1 = префикс, 0 = нет.
-// Точное (egg==egg, carrot~carrots) сильнее префикса (egg~eggnog).
+// Match level of two words: 2 = exact/stem, 1 = prefix, 0 = none.
+// Exact (egg==egg, carrot~carrots) is stronger than prefix (egg~eggnog).
 function wordMatchLevel(a, b) {
   if (a === b) return 2;
   const sa = stem(a);
@@ -99,21 +99,21 @@ function wordMatchLevel(a, b) {
   return 0;
 }
 
-// Скоринг одного кандидата против токенов запроса.
-// Возвращает число (больше = лучше).
+// Scoring of a single candidate against the query tokens.
+// Returns a number (higher = better).
 function scoreCandidate(descTokens, queryTokens, dataType, trigramSim) {
   if (queryTokens.length === 0) return 0;
 
-  let exactHits = 0; // точное/стем-совпадение целым словом
-  let prefixHits = 0; // префиксное (egg~eggnog) — слабее
+  let exactHits = 0; // exact/stem match of a whole word
+  let prefixHits = 0; // prefix (egg~eggnog) — weaker
   let substringHits = 0;
   let firstMatchIdx = -1;
   let firstMatchLevel = 0;
 
-  // Токены-ингредиенты (не слова-состояния): именно они определяют, тот ли это продукт.
-  // Состояние (baked/cooked) — отдельный сигнал ниже. Это чинит «tuna baked»: кандидат
-  // без совпадения по ингредиенту (напр. «Banana baked») получает нулевой ingredientRatio
-  // и проигрывает «Fish, tuna, cooked» (тот же ингредиент, другое состояние).
+  // Ingredient tokens (not state words): they are what determine whether this is the right product.
+  // State (baked/cooked) — a separate signal below. This fixes "tuna baked": a candidate
+  // with no ingredient match (e.g. "Banana baked") gets a zero ingredientRatio
+  // and loses to "Fish, tuna, cooked" (same ingredient, different state).
   const ingredientTokens = queryTokens.filter((t) => !STATE_WORDS.has(t));
   let ingredientHits = 0;
 
@@ -125,7 +125,7 @@ function scoreCandidate(descTokens, queryTokens, dataType, trigramSim) {
       if (lvl > bestLevel) {
         bestLevel = lvl;
         matchedIdx = i;
-        if (lvl === 2) break; // точное — лучшее, дальше не ищем
+        if (lvl === 2) break; // exact — best, do not search further
       }
     }
     let hitStrength = 0;
@@ -146,19 +146,19 @@ function scoreCandidate(descTokens, queryTokens, dataType, trigramSim) {
     }
   }
 
-  // Доля совпавших ИНГРЕДИЕНТОВ (главный сигнал идентичности продукта).
-  // Если ингредиентов в запросе нет (только состояние) — падаем на все токены.
+  // Share of matched INGREDIENTS (the main signal of product identity).
+  // If there are no ingredients in the query (only state) — fall back to all tokens.
   const ingredientRatio = ingredientTokens.length > 0
     ? ingredientHits / ingredientTokens.length
     : (exactHits + prefixHits * 0.6 + substringHits * 0.4) / Math.max(queryTokens.length, 1);
   const matchRatio = ingredientRatio;
 
-  // Кандидат без единого совпадения по ингредиенту — почти наверняка не тот продукт.
-  // Обнуляем, чтобы «Banana baked» не всплывал на «tuna baked».
+  // A candidate without a single ingredient match — almost certainly the wrong product.
+  // Zero it out so that "Banana baked" does not surface for "tuna baked".
   if (ingredientTokens.length > 0 && ingredientHits === 0) return 0;
 
-  // Бонус за раннее совпадение главного слова. Усиливаем, если совпадение ТОЧНОЕ
-  // (иначе "Eggnog" на позиции 0 не должен обгонять "Egg, whole" за счёт позиции).
+  // Bonus for an early match of the main word. We amplify it if the match is EXACT
+  // (otherwise "Eggnog" at position 0 should not outrank "Egg, whole" by position).
   const posLevelMul = firstMatchLevel === 2 ? 1.0 : 0.4;
   let posBonus = 0;
   if (firstMatchIdx === 0) posBonus = 0.35;
@@ -167,23 +167,23 @@ function scoreCandidate(descTokens, queryTokens, dataType, trigramSim) {
   else if (firstMatchIdx > 2) posBonus = 0.04;
   posBonus *= posLevelMul;
 
-  // Короткое описание, где почти все слова из запроса, релевантнее длинного.
-  // НО не штрафуем длинные каноничные записи, если все токены запроса найдены.
+  // A short description, where almost all words are from the query, is more relevant than a long one.
+  // BUT we do not penalize long canonical entries if all query tokens are found.
   const coverage = (exactHits + prefixHits) / Math.max(descTokens.length, 1);
 
-  // Бонус за полное покрытие запроса (все значимые токены найдены целыми словами).
+  // Bonus for full query coverage (all significant tokens found as whole words).
   const allTokensHit = exactHits + prefixHits >= queryTokens.length;
   const fullMatchBonus = allTokensHit ? 0.4 : 0;
 
-  // Сигнал состояния приготовления: raw/cooked/boiled...
+  // Cooking-state signal: raw/cooked/boiled...
   const descSet = new Set(descTokens);
   let stateSignal = 0;
   for (const qt of queryTokens) {
     if (STATE_WORDS.has(qt)) {
       if (descSet.has(qt)) {
-        stateSignal += 0.3; // запрошенное состояние присутствует
+        stateSignal += 0.3; // the requested state is present
       } else {
-        // запрошено состояние, но у кандидата есть ДРУГОЕ состояние → штраф
+        // a state was requested, but the candidate has a DIFFERENT state → penalty
         const hasOtherState = descTokens.some(
           (dt) => STATE_WORDS.has(dt) && dt !== qt,
         );
@@ -194,7 +194,7 @@ function scoreCandidate(descTokens, queryTokens, dataType, trigramSim) {
 
   const dtWeight = DATA_TYPE_WEIGHT[dataType] ?? 0.9;
 
-  // Штраф за слова-блюда, если запрос — чистый ингредиент (без dish-слов).
+  // Penalty for dish words, if the query is a pure ingredient (no dish words).
   const queryIsPlain = !queryTokens.some((t) => DISH_WORDS.has(t));
   let dishPenalty = 0;
   if (queryIsPlain) {
@@ -203,8 +203,8 @@ function scoreCandidate(descTokens, queryTokens, dataType, trigramSim) {
     }
   }
 
-  // Штраф за variant-слова (light/reduced/nonfat), если их нет в запросе —
-  // базовая форма продукта должна выигрывать у диетических вариантов.
+  // Penalty for variant words (light/reduced/nonfat), if absent from the query —
+  // the base form of the product should win over dietary variants.
   let variantPenalty = 0;
   for (const dt of descTokens) {
     if (VARIANT_WORDS.has(dt) && !queryTokens.includes(dt)) variantPenalty -= 0.12;
@@ -224,10 +224,10 @@ function scoreCandidate(descTokens, queryTokens, dataType, trigramSim) {
 }
 
 /**
- * Поиск продуктов в локальной USDA-базе.
- * @param {string} q — поисковый запрос (английский, USDA-стиль).
- * @param {number} pageSize — макс. кандидатов (по умолчанию 25, как в клиенте).
- * @returns {Promise<Array<{fdcId,description,dataType,score}>>} ранжированные кандидаты.
+ * Search products in the local USDA database.
+ * @param {string} q — search query (English, USDA-style).
+ * @param {number} pageSize — max candidates (default 25, as in the client).
+ * @returns {Promise<Array<{fdcId,description,dataType,score}>>} ranked candidates.
  */
 export async function searchFoods(q, pageSize = 25) {
   const allTokens = tokenize(q);
@@ -235,10 +235,10 @@ export async function searchFoods(q, pageSize = 25) {
 
   if (queryTokens.length === 0) return [];
 
-  // SQL-предфильтр: описания, содержащие хотя бы одну ОСНОВУ токена (стем, OR),
-  // + порог trigram-similarity как страховка от опечаток/словоформ.
-  // LIKE по стему (carrot → '%carrot%' поймает 'carrots'). Точный скоринг — в JS.
-  // Тянем расширенный пул (до 400), чтобы ранжирование в JS выбрало лучшее.
+  // SQL pre-filter: descriptions containing at least one token STEM (stem, OR),
+  // + a trigram-similarity threshold as insurance against typos/word forms.
+  // LIKE by stem (carrot → '%carrot%' catches 'carrots'). Exact scoring — in JS.
+  // We pull an expanded pool (up to 400) so JS ranking picks the best.
   const stems = queryTokens.map((t) => stem(t));
   const likeClauses = stems.map((_, i) => `description ILIKE $${i + 2}`);
   const params = [q, ...stems.map((t) => `%${t}%`)];
@@ -274,7 +274,7 @@ export async function searchFoods(q, pageSize = 25) {
 }
 
 /**
- * Собирает UsdaSearchResponse — байт-идентичный тому, что отдавал USDA API.
+ * Builds a UsdaSearchResponse — byte-identical to what the USDA API returned.
  * @param {string} q
  * @param {number} pageSize
  * @returns {Promise<{foods: Array}>}
@@ -283,7 +283,7 @@ export async function searchUsdaResponse(q, pageSize = 25) {
   const candidates = await searchFoods(q, pageSize);
   if (candidates.length === 0) return { foods: [], totalHits: 0 };
 
-  // Тянем нутриенты для всех найденных fdc_id одним запросом.
+  // Pull nutrients for all found fdc_ids in a single query.
   const ids = candidates.map((c) => c.fdcId);
   const { rows: nutrientRows } = await query(
     `SELECT fdc_id, nutrient_id, value FROM food_nutrients WHERE fdc_id = ANY($1)`,
