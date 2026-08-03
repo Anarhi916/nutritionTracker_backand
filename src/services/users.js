@@ -55,3 +55,9 @@ export async function upsertUserFromProvider(provider, sub, email) {
 export async function deleteUser(userId) {
   await query(`DELETE FROM users WHERE id = $1`, [userId]);
 }
+
+// Существует ли пользователь (для requireUser — токен валиден, но аккаунт мог быть удалён).
+export async function userExists(userId) {
+  const { rows } = await query(`SELECT 1 FROM users WHERE id = $1`, [userId]);
+  return rows.length > 0;
+}

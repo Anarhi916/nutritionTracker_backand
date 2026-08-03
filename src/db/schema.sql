@@ -81,6 +81,7 @@ CREATE TABLE IF NOT EXISTS sync_profiles (
   height_cm   DOUBLE PRECISION,
   goals_text  TEXT,
   updated_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+  server_updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   deleted_at  TIMESTAMPTZ
 );
 
@@ -88,6 +89,7 @@ CREATE TABLE IF NOT EXISTS sync_norms (
   user_id     UUID PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
   nutrients   JSONB NOT NULL,
   updated_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+  server_updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   deleted_at  TIMESTAMPTZ
 );
 
@@ -103,11 +105,10 @@ CREATE TABLE IF NOT EXISTS sync_food_entries (
   from_cache    BOOLEAN NOT NULL DEFAULT false,
   created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+  server_updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   deleted_at    TIMESTAMPTZ,
   PRIMARY KEY (user_id, client_id)
 );
-CREATE INDEX IF NOT EXISTS idx_sync_entries_pull
-  ON sync_food_entries(user_id, updated_at);
 
 CREATE TABLE IF NOT EXISTS sync_food_cache (
   user_id          UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -118,8 +119,18 @@ CREATE TABLE IF NOT EXISTS sync_food_cache (
   nutrients_json   TEXT NOT NULL,
   created_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
+  server_updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   deleted_at       TIMESTAMPTZ,
   PRIMARY KEY (user_id, key_normalized)
 );
+
+-- Миграция для существующих БД: добавить server_updated_at ДО создания индексов по ней.
+ALTER TABLE sync_profiles     ADD COLUMN IF NOT EXISTS server_updated_at TIMESTAMPTZ NOT NULL DEFAULT now();
+ALTER TABLE sync_norms        ADD COLUMN IF NOT EXISTS server_updated_at TIMESTAMPTZ NOT NULL DEFAULT now();
+ALTER TABLE sync_food_entries ADD COLUMN IF NOT EXISTS server_updated_at TIMESTAMPTZ NOT NULL DEFAULT now();
+ALTER TABLE sync_food_cache   ADD COLUMN IF NOT EXISTS server_updated_at TIMESTAMPTZ NOT NULL DEFAULT now();
+
+CREATE INDEX IF NOT EXISTS idx_sync_entries_pull
+  ON sync_food_entries(user_id, server_updated_at);
 CREATE INDEX IF NOT EXISTS idx_sync_cache_pull
-  ON sync_food_cache(user_id, updated_at);
+  ON sync_food_cache(user_id, server_updated_at);

@@ -1,7 +1,9 @@
 // Синхронизация данных пользователя между устройствами.
-// Стратегия: server-as-source-of-truth, last-write-wins по updated_at.
-// Wire-формат времени — epoch-миллисекунды (число). В БД — TIMESTAMPTZ.
-// См. sync-architecture (memory) + docs.
+// Стратегия: server-as-source-of-truth, last-write-wins по updated_at (клиентское время).
+// ВАЖНО: дельта-курсор (since/serverTime) считается по server_updated_at — серверным
+// часам, проставляемым при каждом upsert. Это устраняет зависимость от рассинхрона
+// часов между устройствами (иначе запись, созданная «в прошлом» по клиентским часам,
+// но загруженная позже, проскакивала бы мимо since). См. sync-architecture (memory).
 import { query, getPool } from '../db/pool.js';
 
 // --- Хелперы конвертации времени ---
@@ -19,9 +21,9 @@ function isoToMs(d) {
 }
 
 // ---------------------------------------------------------------------------
-// PUSH — принять дельту от клиента и записать (last-write-wins).
+// PUSH — принять дельту от клиента и записать (last-write-wins по updated_at).
+// server_updated_at на каждый успешный upsert = now() (серверные часы).
 // body: { profile?, norms?, entries?[], foodCache?[] }
-// Каждая запись несёт updatedAt (ms) и опционально deletedAt (ms).
 // ---------------------------------------------------------------------------
 export async function pushSync(userId, body) {
   const pool = getPool();
@@ -33,12 +35,13 @@ export async function pushSync(userId, body) {
     if (body.profile) {
       const p = body.profile;
       await client.query(
-        `INSERT INTO sync_profiles (user_id, gender, age, weight_kg, height_cm, goals_text, updated_at, deleted_at)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+        `INSERT INTO sync_profiles (user_id, gender, age, weight_kg, height_cm, goals_text, updated_at, deleted_at, server_updated_at)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8, now())
          ON CONFLICT (user_id) DO UPDATE SET
            gender=EXCLUDED.gender, age=EXCLUDED.age, weight_kg=EXCLUDED.weight_kg,
            height_cm=EXCLUDED.height_cm, goals_text=EXCLUDED.goals_text,
-           updated_at=EXCLUDED.updated_at, deleted_at=EXCLUDED.deleted_at
+           updated_at=EXCLUDED.updated_at, deleted_at=EXCLUDED.deleted_at,
+           server_updated_at=now()
          WHERE EXCLUDED.updated_at >= sync_profiles.updated_at`,
         [userId, p.gender, p.age, p.weightKg, p.heightCm, p.goalsText,
          msToIso(p.updatedAt), msToIso(p.deletedAt)],
@@ -49,10 +52,11 @@ export async function pushSync(userId, body) {
     if (body.norms) {
       const n = body.norms;
       await client.query(
-        `INSERT INTO sync_norms (user_id, nutrients, updated_at, deleted_at)
-           VALUES ($1,$2,$3,$4)
+        `INSERT INTO sync_norms (user_id, nutrients, updated_at, deleted_at, server_updated_at)
+           VALUES ($1,$2,$3,$4, now())
          ON CONFLICT (user_id) DO UPDATE SET
-           nutrients=EXCLUDED.nutrients, updated_at=EXCLUDED.updated_at, deleted_at=EXCLUDED.deleted_at
+           nutrients=EXCLUDED.nutrients, updated_at=EXCLUDED.updated_at, deleted_at=EXCLUDED.deleted_at,
+           server_updated_at=now()
          WHERE EXCLUDED.updated_at >= sync_norms.updated_at`,
         [userId, n.nutrientsJson, msToIso(n.updatedAt), msToIso(n.deletedAt)],
       );
@@ -65,13 +69,14 @@ export async function pushSync(userId, body) {
         await client.query(
           `INSERT INTO sync_food_entries
              (user_id, client_id, date, food_name, food_name_en, weight_grams,
-              nutrients_json, source, from_cache, created_at, updated_at, deleted_at)
-             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,COALESCE($10, now()),$11,$12)
+              nutrients_json, source, from_cache, created_at, updated_at, deleted_at, server_updated_at)
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,COALESCE($10, now()),$11,$12, now())
            ON CONFLICT (user_id, client_id) DO UPDATE SET
              date=EXCLUDED.date, food_name=EXCLUDED.food_name, food_name_en=EXCLUDED.food_name_en,
              weight_grams=EXCLUDED.weight_grams, nutrients_json=EXCLUDED.nutrients_json,
              source=EXCLUDED.source, from_cache=EXCLUDED.from_cache,
-             updated_at=EXCLUDED.updated_at, deleted_at=EXCLUDED.deleted_at
+             updated_at=EXCLUDED.updated_at, deleted_at=EXCLUDED.deleted_at,
+             server_updated_at=now()
            WHERE EXCLUDED.updated_at >= sync_food_entries.updated_at`,
           [userId, e.clientId, e.date, e.foodName, e.foodNameEn ?? '', e.weightGrams,
            e.nutrientsJson, e.source ?? 'manual', e.fromCache ?? false,
@@ -87,12 +92,13 @@ export async function pushSync(userId, body) {
         await client.query(
           `INSERT INTO sync_food_cache
              (user_id, key_normalized, key_original, key_en, key_en_normalized,
-              nutrients_json, created_at, updated_at, deleted_at)
-             VALUES ($1,$2,$3,$4,$5,$6,COALESCE($7, now()),$8,$9)
+              nutrients_json, created_at, updated_at, deleted_at, server_updated_at)
+             VALUES ($1,$2,$3,$4,$5,$6,COALESCE($7, now()),$8,$9, now())
            ON CONFLICT (user_id, key_normalized) DO UPDATE SET
              key_original=EXCLUDED.key_original, key_en=EXCLUDED.key_en,
              key_en_normalized=EXCLUDED.key_en_normalized, nutrients_json=EXCLUDED.nutrients_json,
-             updated_at=EXCLUDED.updated_at, deleted_at=EXCLUDED.deleted_at
+             updated_at=EXCLUDED.updated_at, deleted_at=EXCLUDED.deleted_at,
+             server_updated_at=now()
            WHERE EXCLUDED.updated_at >= sync_food_cache.updated_at`,
           [userId, c.keyNormalized, c.keyOriginal, c.keyEn ?? '', c.keyEnNormalized ?? '',
            c.nutrientsJson, msToIso(c.createdAt), msToIso(c.updatedAt), msToIso(c.deletedAt)],
@@ -110,31 +116,34 @@ export async function pushSync(userId, body) {
 }
 
 // ---------------------------------------------------------------------------
-// PULL — отдать данные пользователя. since=null → всё (full); иначе дельта.
-// Возвращает { profile, norms, entries[], foodCache[], serverTime }.
-// serverTime — клиент сохраняет как last_pull_at для следующей дельты.
+// PULL — отдать данные пользователя. since=null → всё (full); иначе дельта по
+// server_updated_at (серверные часы). serverTime в ответе = МАКСИМАЛЬНЫЙ
+// server_updated_at среди отданных строк (не Date.now()!) — это гарантирует, что
+// курсор клиента не «перепрыгнет» запись, загруженную с другого устройства позже.
 // ---------------------------------------------------------------------------
 export async function pullSync(userId, sinceMs) {
   const sinceIso = sinceMs != null ? msToIso(sinceMs) : null;
-  const whereSince = sinceIso ? 'AND updated_at > $2' : '';
+  const whereSince = sinceIso ? 'AND server_updated_at > $2' : '';
   const params = sinceIso ? [userId, sinceIso] : [userId];
 
   const [profileRes, normsRes, entriesRes, cacheRes] = await Promise.all([
-    query(
-      `SELECT * FROM sync_profiles WHERE user_id = $1 ${whereSince}`, params,
-    ),
-    query(
-      `SELECT * FROM sync_norms WHERE user_id = $1 ${whereSince}`, params,
-    ),
-    query(
-      `SELECT * FROM sync_food_entries WHERE user_id = $1 ${whereSince}
-         ORDER BY updated_at ASC`, params,
-    ),
-    query(
-      `SELECT * FROM sync_food_cache WHERE user_id = $1 ${whereSince}
-         ORDER BY updated_at ASC`, params,
-    ),
+    query(`SELECT * FROM sync_profiles WHERE user_id = $1 ${whereSince}`, params),
+    query(`SELECT * FROM sync_norms WHERE user_id = $1 ${whereSince}`, params),
+    query(`SELECT * FROM sync_food_entries WHERE user_id = $1 ${whereSince}
+             ORDER BY server_updated_at ASC`, params),
+    query(`SELECT * FROM sync_food_cache WHERE user_id = $1 ${whereSince}
+             ORDER BY server_updated_at ASC`, params),
   ]);
+
+  // serverTime = максимум server_updated_at среди всех отданных строк.
+  // Если ничего не отдали — курсор клиента не двигаем (возвращаем прежний since,
+  // либо now() при full-pull без данных — там двигать безопасно).
+  let maxServerMs = sinceMs ?? 0;
+  const bump = (d) => { const ms = isoToMs(d); if (ms != null && ms > maxServerMs) maxServerMs = ms; };
+  for (const r of profileRes.rows) bump(r.server_updated_at);
+  for (const r of normsRes.rows) bump(r.server_updated_at);
+  for (const r of entriesRes.rows) bump(r.server_updated_at);
+  for (const r of cacheRes.rows) bump(r.server_updated_at);
 
   const profile = profileRes.rows[0] ? {
     gender: profileRes.rows[0].gender,
@@ -178,5 +187,7 @@ export async function pullSync(userId, sinceMs) {
     deletedAt: isoToMs(r.deleted_at),
   }));
 
-  return { profile, norms, entries, foodCache, serverTime: Date.now() };
+  // full-pull без данных → отдаём now() (двигать курсор безопасно, записей нет).
+  const serverTime = (sinceMs == null && maxServerMs === 0) ? Date.now() : maxServerMs;
+  return { profile, norms, entries, foodCache, serverTime };
 }
