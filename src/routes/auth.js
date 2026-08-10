@@ -53,6 +53,34 @@ authRouter.post('/v1/auth/apple', async (req, res, next) => {
   }
 });
 
+// POST /v1/auth/apple/callback — web redirect target for Sign in with Apple (Android).
+// Apple posts application/x-www-form-urlencoded { code, state, id_token?, user? } here
+// (form_post mode). We exchange the code for identity, issue OUR session, then redirect
+// back into the app via a custom-scheme deep link carrying the tokens.
+// This URL is the Return URL registered in the Apple Services ID.
+authRouter.post('/v1/auth/apple/callback', async (req, res) => {
+  const appScheme = 'com.nutrition.tracker'; // app catches this deep link
+  try {
+    const { code } = req.body ?? {};
+    if (typeof code !== 'string' || !code) {
+      return res.redirect(302, `${appScheme}:/apple-auth?error=no_code`);
+    }
+    const identity = await exchangeAppleCode(code);
+    const userId = await upsertUserFromProvider('apple', identity.sub, identity.email);
+    const tokens = await issueTokens(userId);
+    // Deep link back into the app with our session tokens.
+    const params = new URLSearchParams({
+      access: tokens.accessToken,
+      refresh: tokens.refreshToken,
+      expires: String(tokens.expiresIn ?? ''),
+    });
+    return res.redirect(302, `${appScheme}:/apple-auth?${params.toString()}`);
+  } catch (err) {
+    console.error('[auth/apple/callback]', err.message);
+    return res.redirect(302, `${appScheme}:/apple-auth?error=auth_failed`);
+  }
+});
+
 // POST /v1/auth/refresh  { refreshToken }
 authRouter.post('/v1/auth/refresh', async (req, res, next) => {
   try {

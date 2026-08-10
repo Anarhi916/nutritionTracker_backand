@@ -16,6 +16,8 @@ const app = express();
 
 // Body limit raised because of base64 photos in /v1/food/photo (see ARCHITECTURE.md).
 app.use(express.json({ limit: '6mb' }));
+// Sign in with Apple posts the callback as application/x-www-form-urlencoded (form_post).
+app.use(express.urlencoded({ extended: false }));
 
 // /health — no auth (liveness probe).
 app.use('/', healthRouter);
