@@ -18,7 +18,10 @@ syncRouter.post('/v1/sync/push', async (req, res, next) => {
   }
 });
 
-// GET /v1/sync/pull?since=<epoch-ms> — return data (full if since is absent).
+// GET /v1/sync/pull?since=<cursor> — return data (full if since is absent).
+// `since` is the opaque commit-safe watermark (xid8) the client received from a prior
+// pull's serverTime. Legacy clients may still send an old epoch-ms cursor; pullSync
+// detects that (value >= snapshot xmin) and treats it as a full pull once.
 syncRouter.get('/v1/sync/pull', async (req, res, next) => {
   try {
     const sinceRaw = req.query.since;

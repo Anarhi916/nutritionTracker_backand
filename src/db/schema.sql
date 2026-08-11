@@ -134,3 +134,20 @@ CREATE INDEX IF NOT EXISTS idx_sync_entries_pull
   ON sync_food_entries(user_id, server_updated_at);
 CREATE INDEX IF NOT EXISTS idx_sync_cache_pull
   ON sync_food_cache(user_id, server_updated_at);
+
+-- Commit-order-safe delta cursor (see sync.js). server_updated_at is now()=transaction
+-- START time, which is NOT consistent with commit-visibility order: a push that BEGAN
+-- earlier but COMMITS later carries an earlier stamp, so a concurrent pull could advance
+-- its cursor past those rows and strand them forever. pg_current_xact_id() (xid8, no
+-- wraparound) is assigned per push transaction; the pull watermark is the snapshot xmin,
+-- below which every transaction has settled — so nothing can ever be back-filled under it.
+-- Existing rows get server_xid=0 (< any xmin) → delivered on the first pull after migration.
+ALTER TABLE sync_profiles     ADD COLUMN IF NOT EXISTS server_xid BIGINT NOT NULL DEFAULT 0;
+ALTER TABLE sync_norms        ADD COLUMN IF NOT EXISTS server_xid BIGINT NOT NULL DEFAULT 0;
+ALTER TABLE sync_food_entries ADD COLUMN IF NOT EXISTS server_xid BIGINT NOT NULL DEFAULT 0;
+ALTER TABLE sync_food_cache   ADD COLUMN IF NOT EXISTS server_xid BIGINT NOT NULL DEFAULT 0;
+
+CREATE INDEX IF NOT EXISTS idx_sync_profiles_xid ON sync_profiles(user_id, server_xid);
+CREATE INDEX IF NOT EXISTS idx_sync_norms_xid    ON sync_norms(user_id, server_xid);
+CREATE INDEX IF NOT EXISTS idx_sync_entries_xid  ON sync_food_entries(user_id, server_xid);
+CREATE INDEX IF NOT EXISTS idx_sync_cache_xid    ON sync_food_cache(user_id, server_xid);
