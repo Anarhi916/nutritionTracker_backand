@@ -111,6 +111,10 @@ CRITICAL — output language for food_name:
 - food_name MUST be written in ${uiLang} (the app's UI language). Translate the product name INTO ${uiLang}.
 - Do NOT copy the language of these instructions. Even though the examples below use Russian/Ukrainian, the food_name you return must be in ${uiLang}, never Russian (unless ${uiLang} is Russian).
 - food_name_en — the EXACT English translation used to search the USDA database.
+- food_name_en MUST be uiLang-INDEPENDENT: it is a GENERIC, USDA-searchable English food name and MUST be IDENTICAL no matter what ${uiLang} is. Only food_name changes with the UI language; food_name_en never does.
+- REMOVE brand names, sub-brands, product-line and marketing words from food_name_en; keep ONLY the generic food category plus essential descriptors (cooking state, "raw", fat %).
+  Examples: "Комо сыр Кантри" → food_name_en "cheese" (NOT "Komo Country cheese"); "Danone Активиа" → "yogurt"; "Мираторг стейк говяжий" → "beef steak".
+- food_name_en MUST preserve any explicit fat percentage from the name: "сметана 20%" → "sour cream 20%", "молоко 3.2%" → "milk 3.2%", "творог 5%" → "cottage cheese 5%".
 
 Translation examples (source language varies → English key):
 - "куриная отбивная" / "куряча відбивна" → "chicken breast cutlet"
@@ -210,7 +214,7 @@ For composite dishes (salads, soups):
 Description: ${description}
 
 Return ONLY a JSON array (even for a single product):
-[{"food_name": "<product name in ${uiLang}>", "food_name_en": "<EXACT English translation for USDA search>", "weight_grams": <number>}]`;
+[{"food_name": "<product name in ${uiLang}>", "food_name_orig": "<product name in the SAME language as the Description above, uiLang-INDEPENDENT>", "food_name_en": "<EXACT English translation for USDA search>", "weight_grams": <number>}]`;
 }
 
 // generateUsdaSearchQueries — input: queryRu (orig. language) + queryEn (English).

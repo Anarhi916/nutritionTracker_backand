@@ -88,6 +88,7 @@ async function runIdentify(descriptionForAi, uiLang) {
     .filter((o) => o && typeof o === 'object')
     .map((o) => ({
       foodName: o.food_name ?? '',
+      foodNameOrig: o.food_name_orig ?? '',
       foodNameEn: o.food_name_en ?? '',
       weightGrams: Number(o.weight_grams) || 0,
     }));
@@ -325,6 +326,8 @@ export async function analyzeFoodText(items, uiLang, { useCache = true } = {}) {
   for (const id of identities) {
     const nameRu = id.foodName || descriptionForAi;
     const nameEn = id.foodNameEn || id.foodName;
+    // Language-stable anchor for search/estimation (never the localized display name).
+    const nameOrig = id.foodNameOrig || descriptionForAi;
     const weight = id.weightGrams > 0 ? id.weightGrams : 100.0;
 
     const cached = useCache ? await findInCache(nameEn) : null;
@@ -335,22 +338,22 @@ export async function analyzeFoodText(items, uiLang, { useCache = true } = {}) {
       if (JSON.stringify(enriched) !== JSON.stringify(cached.nutrients)) {
         await saveToCache(nameEn, enriched, cached.source ?? 'usda');
       }
-      cachedResults.push({ foodNameRu: nameRu, foodNameEn: nameEn, weight, nutrientsPer100g: enriched, fromCache: true });
+      cachedResults.push({ foodNameRu: nameRu, foodNameOrig: nameOrig, foodNameEn: nameEn, weight, nutrientsPer100g: enriched, fromCache: true });
     } else {
-      aiPending.push({ foodNameRu: nameRu, foodNameEn: nameEn, weight, nutrientsPer100g: null });
+      aiPending.push({ foodNameRu: nameRu, foodNameOrig: nameOrig, foodNameEn: nameEn, weight, nutrientsPer100g: null });
     }
   }
 
   // Step 2: USDA loop for aiPending.
   for (const item of aiPending) {
-    const isDairyPct = isDairyWithFatPercent(item.foodNameRu, item.foodNameEn);
+    const isDairyPct = isDairyWithFatPercent(item.foodNameOrig, item.foodNameEn);
     let nameForSearch = isDairyPct ? stripFatPercent(item.foodNameEn) : item.foodNameEn;
     nameForSearch = toAmerican(nameForSearch);
     const negationCleaned = negationClean(nameForSearch);
 
     if (isCompositeDish(negationCleaned)) continue; // → Step 3
 
-    const queryRu = isDairyPct ? stripFatPercent(item.foodNameRu) : item.foodNameRu;
+    const queryRu = isDairyPct ? stripFatPercent(item.foodNameOrig) : item.foodNameOrig;
     const queryEn = isDairyPct ? stripFatPercent(item.foodNameEn) : item.foodNameEn;
 
     let searchQueries;
@@ -429,7 +432,10 @@ export async function analyzeFoodText(items, uiLang, { useCache = true } = {}) {
     let source = 'usda';
     if (item.nutrientsPer100g == null) {
       try {
-        const { per100g } = await analyzeSingleDish(item.foodNameRu);
+        // Estimate from the uiLang-INDEPENDENT English name (generic, brand-free)
+        // with the original-language name as fallback — never the localized display
+        // name (foodNameRu), so nutrients do not depend on the UI language.
+        const { per100g } = await analyzeSingleDish(item.foodNameEn || item.foodNameOrig);
         item.nutrientsPer100g = per100g;
         source = 'ai';
       } catch { /* log omitted */ }
@@ -437,8 +443,8 @@ export async function analyzeFoodText(items, uiLang, { useCache = true } = {}) {
       source = 'ai';
     }
 
-    if (item.nutrientsPer100g && isDairyWithFatPercent(item.foodNameRu, item.foodNameEn)) {
-      item.nutrientsPer100g = await correctDairyMacros(item.nutrientsPer100g, item.foodNameRu);
+    if (item.nutrientsPer100g && isDairyWithFatPercent(item.foodNameOrig, item.foodNameEn)) {
+      item.nutrientsPer100g = await correctDairyMacros(item.nutrientsPer100g, item.foodNameOrig);
     }
 
     // ASYMMETRY FIX: fat-details immediately on a miss, before writing to the cache → a complete write.
