@@ -534,11 +534,20 @@ export async function analyzePhoto(imageBase64, uiLang) {
 export async function enrichBarcode(name, offNutrients) {
   let per100g = { ...emptyNutrients(), ...offNutrients };
 
-  // Zero macros → fallback to AI (whole dish by name).
-  if (per100g.calories === 0 && per100g.protein === 0 && per100g.fat === 0 && per100g.carbs === 0) {
+  // Missing macros → fall back to AI (whole dish by name). Some OFF products carry
+  // energy but no protein/fat/carbs; requiring calories to also be zero would skip the
+  // fallback and leave macros (and fiber) at zero while micros get enriched. Trigger on
+  // the macros alone: a real food essentially never has protein+fat+carbs all zero.
+  if (per100g.protein === 0 && per100g.fat === 0 && per100g.carbs === 0) {
     try {
       const { per100g: aiPer100g } = await analyzeSingleDish(name);
-      per100g = aiPer100g;
+      // Use the AI estimate as the base, but keep any real (non-zero) OFF value on top —
+      // OFF's measured calories/minerals are more trustworthy than an AI guess.
+      const merged = { ...aiPer100g };
+      for (const [k, v] of Object.entries(offNutrients || {})) {
+        if (typeof v === 'number' && v !== 0) merged[k] = v;
+      }
+      per100g = merged;
     } catch { /* keep the OFF data as is */ }
   }
 
