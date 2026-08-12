@@ -534,20 +534,25 @@ export async function analyzePhoto(imageBase64, uiLang) {
 export async function enrichBarcode(name, offNutrients) {
   let per100g = { ...emptyNutrients(), ...offNutrients };
 
-  // Missing macros → fall back to AI (whole dish by name). Some OFF products carry
-  // energy but no protein/fat/carbs; requiring calories to also be zero would skip the
-  // fallback and leave macros (and fiber) at zero while micros get enriched. Trigger on
-  // the macros alone: a real food essentially never has protein+fat+carbs all zero.
+  // Missing macros → fall back to AI. Some OFF products carry only a name (empty
+  // nutriments) or energy without protein/fat/carbs. We use the IDENTIFY-first text path
+  // (analyzeFoodText), NOT analyzeSingleDish: a raw branded name like "Комо сыр Кантри"
+  // makes the model refuse ("I cannot…") and throw, whereas identify normalizes it to a
+  // real food ("cheese") and returns proper macros. Trigger on macros alone: a real food
+  // essentially never has protein+fat+carbs all zero.
   if (per100g.protein === 0 && per100g.fat === 0 && per100g.carbs === 0) {
     try {
-      const { per100g: aiPer100g } = await analyzeSingleDish(name);
-      // Use the AI estimate as the base, but keep any real (non-zero) OFF value on top —
-      // OFF's measured calories/minerals are more trustworthy than an AI guess.
-      const merged = { ...aiPer100g };
-      for (const [k, v] of Object.entries(offNutrients || {})) {
-        if (typeof v === 'number' && v !== 0) merged[k] = v;
+      const results = await analyzeFoodText([{ name, grams: 100 }], 'English', { useCache: false });
+      const aiPer100g = results?.[0]?.nutrientsPer100g;
+      if (aiPer100g && (aiPer100g.protein || aiPer100g.fat || aiPer100g.carbs)) {
+        // AI estimate as base; keep any real (non-zero) OFF value on top — OFF's measured
+        // calories/minerals beat an AI guess.
+        const merged = { ...aiPer100g };
+        for (const [k, v] of Object.entries(offNutrients || {})) {
+          if (typeof v === 'number' && v !== 0) merged[k] = v;
+        }
+        per100g = merged;
       }
-      per100g = merged;
     } catch { /* keep the OFF data as is */ }
   }
 
