@@ -129,6 +129,9 @@ Translation examples (source language varies → English key):
 - "голубці" / "голубцы" → "stuffed cabbage rolls"
 - "деруни" / "драники" → "potato pancakes"
 - "лосось слабосоленный" → "salmon salted"
+- "хамон" / "хамон серрано" / "jamón" / "jamón serrano" → "prosciutto" (dry-cured ham, ready-to-eat — NOT raw pork, NOT boiled deli ham)
+- "хамон иберико" / "jamón ibérico" → "prosciutto"
+- "прошутто" / "прошуто" → "prosciutto"
 - "кава" / "кофе" → "coffee brewed"
 - "капучіно" / "капучино" → "coffee cappuccino"
 
@@ -251,6 +254,11 @@ RULE 4 — REGIONAL / LOCALISED foods → use the closest USDA synonym:
   - "черемша" / "wild garlic" → ["ramps raw", "wild leek raw"] (USDA uses "ramps", NOT "wild garlic")
   - "творог" / "cottage cheese" → ["cottage cheese", "cottage cheese lowfat"]
   - "ряженка" / "cultured milk" → ["kefir", "cultured milk fermented"]
+  - "хамон" / "jamón" / "prosciutto" → ["prosciutto", "ham cured"] (dry-cured ham — USDA "Ham, prosciutto"; NOT raw/fresh pork leg, NOT boiled deli ham)
+  - STUFFED DUMPLINGS: keep the DISH word, do NOT reduce to the filling ingredient (a plain-potato query loses all the dough/prep macros):
+    - "вареники с картошкой" / "potato pierogi" → ["potato dumpling", "pierogi"] (USDA "Dumpling, potato- or cheese-filled" / "Pierogi" — NOT "potato cooked")
+    - "вареники с творогом" / "cheese pierogi" → ["cheese dumpling", "pierogi"]
+    - "пельмени" / "pelmeni" → ["dumpling meat-filled", "pelmeni"]
 
 RULE 5 — RAW produce → add "raw":
   - "помидор" / "tomato" → ["tomato raw"]

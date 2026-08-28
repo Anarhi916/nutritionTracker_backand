@@ -57,27 +57,34 @@ authRouter.post('/v1/auth/apple', async (req, res, next) => {
 // Apple posts application/x-www-form-urlencoded { code, state, id_token?, user? } here
 // (form_post mode). We exchange the code for identity, issue OUR session, then redirect
 // back into the app via a custom-scheme deep link carrying the tokens.
+// Tokens (and the round-tripped CSRF `state`) go in the URL FRAGMENT, not the query:
+// a fragment is not sent to servers, is far less likely to be captured in URL logs /
+// crash reports, and is still readable by the app that handles the deep link.
 // This URL is the Return URL registered in the Apple Services ID.
 authRouter.post('/v1/auth/apple/callback', async (req, res) => {
   const appScheme = 'com.nutrition.tracker'; // app catches this deep link
+  const state = typeof req.body?.state === 'string' ? req.body.state : '';
+  const fail = (err) =>
+    res.redirect(302, `${appScheme}:/apple-auth#${new URLSearchParams({ error: err, ...(state ? { state } : {}) })}`);
   try {
     const { code } = req.body ?? {};
     if (typeof code !== 'string' || !code) {
-      return res.redirect(302, `${appScheme}:/apple-auth?error=no_code`);
+      return fail('no_code');
     }
     const identity = await exchangeAppleCode(code);
     const userId = await upsertUserFromProvider('apple', identity.sub, identity.email);
     const tokens = await issueTokens(userId);
-    // Deep link back into the app with our session tokens.
+    // Deep link back into the app with our session tokens (in the fragment).
     const params = new URLSearchParams({
       access: tokens.accessToken,
       refresh: tokens.refreshToken,
       expires: String(tokens.expiresIn ?? ''),
+      ...(state ? { state } : {}),
     });
-    return res.redirect(302, `${appScheme}:/apple-auth?${params.toString()}`);
+    return res.redirect(302, `${appScheme}:/apple-auth#${params.toString()}`);
   } catch (err) {
     console.error('[auth/apple/callback]', err.message);
-    return res.redirect(302, `${appScheme}:/apple-auth?error=auth_failed`);
+    return fail('auth_failed');
   }
 });
 

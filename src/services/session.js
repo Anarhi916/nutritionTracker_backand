@@ -5,6 +5,8 @@ import { config } from '../config.js';
 import { query } from '../db/pool.js';
 
 const secretKey = new TextEncoder().encode(config.accounts.jwtSecret);
+const JWT_ISSUER = 'nutritiontracker-backend';
+const JWT_AUDIENCE = 'nutritiontracker-client';
 
 function sha256(raw) {
   return createHash('sha256').update(raw).digest('hex');
@@ -15,6 +17,8 @@ export async function issueTokens(userId) {
   const now = Math.floor(Date.now() / 1000);
   const accessToken = await new SignJWT({ sub: userId })
     .setProtectedHeader({ alg: 'HS256' })
+    .setIssuer(JWT_ISSUER)
+    .setAudience(JWT_AUDIENCE)
     .setIssuedAt(now)
     .setExpirationTime(now + config.accounts.accessTtlSec)
     .sign(secretKey);
@@ -35,7 +39,10 @@ export async function issueTokens(userId) {
 
 /** Verify the access-JWT. Returns userId or throws. */
 export async function verifyAccess(token) {
-  const { payload } = await jwtVerify(token, secretKey);
+  const { payload } = await jwtVerify(token, secretKey, {
+    issuer: JWT_ISSUER,
+    audience: JWT_AUDIENCE,
+  });
   if (!payload.sub) throw new Error('нет sub');
   return String(payload.sub);
 }

@@ -9,6 +9,15 @@
 import { config } from '../config.js';
 import { verifyAppAttest } from '../services/appAttest.js';
 import { verifyPlayIntegrity } from '../services/playIntegrity.js';
+import { timingSafeEqual } from 'node:crypto';
+
+// Constant-time string compare — avoids leaking the secret via response timing.
+function safeEqual(a, b) {
+  const ba = Buffer.from(String(a));
+  const bb = Buffer.from(String(b));
+  if (ba.length !== bb.length) return false;
+  return timingSafeEqual(ba, bb);
+}
 
 // Device identifier for rate-limit. In dev — X-Device-Id or IP.
 // In prod — from verified attestation (keyId / stable identifier).
@@ -32,7 +41,7 @@ export async function authMiddleware(req, res, next) {
       if (!config.auth.devSecret) {
         return res.status(500).json({ error: 'server_misconfig', message: 'DEV_AUTH_SECRET не задан' });
       }
-      if (provided !== config.auth.devSecret) {
+      if (!safeEqual(provided ?? '', config.auth.devSecret)) {
         return unauthorized(res, 'Неверный или отсутствующий X-Dev-Auth');
       }
       req.deviceId = deviceIdFrom(req);

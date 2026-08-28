@@ -26,7 +26,11 @@ export async function upsertUserFromProvider(provider, sub, email) {
     return id;
   }
 
-  // 2) linking by email (if the provider gave an email and one already exists)
+  // 2) linking by email (if the provider gave an email and one already exists).
+  //    The UPDATE is guarded by `${subCol} IS NULL` so two providers can't stomp
+  //    each other, and we check the row count: if the matched row vanished between
+  //    SELECT and UPDATE (concurrent deletion), fall through to insert instead of
+  //    returning a stale id that would break issueTokens with an FK violation.
   if (email) {
     const byEmail = await query(
       `SELECT id FROM users WHERE email = $1 AND ${subCol} IS NULL LIMIT 1`,
@@ -34,18 +38,29 @@ export async function upsertUserFromProvider(provider, sub, email) {
     );
     if (byEmail.rows.length) {
       const id = byEmail.rows[0].id;
-      await query(
-        `UPDATE users SET ${subCol} = $2, last_login_at = now() WHERE id = $1`,
+      const linked = await query(
+        `UPDATE users SET ${subCol} = $2, last_login_at = now()
+           WHERE id = $1 AND ${subCol} IS NULL
+         RETURNING id`,
         [id, sub],
       );
-      return id;
+      if (linked.rows.length) return id;
+      // Row changed under us — re-resolve by sub (another request just linked it).
+      const reBySub = await query(`SELECT id FROM users WHERE ${subCol} = $1`, [sub]);
+      if (reBySub.rows.length) return reBySub.rows[0].id;
     }
   }
 
-  // 3) new user
+  // 3) new user — atomic against a concurrent first-login for the same account.
+  //    ON CONFLICT on the provider sub turns the UNIQUE-violation race into an
+  //    idempotent upsert instead of an unhandled 500.
   const created = await query(
     `INSERT INTO users (${subCol}, email, last_login_at)
-       VALUES ($1, $2, now()) RETURNING id`,
+       VALUES ($1, $2, now())
+     ON CONFLICT (${subCol}) DO UPDATE
+       SET last_login_at = now(),
+           email = COALESCE(users.email, EXCLUDED.email)
+     RETURNING id`,
     [sub, email],
   );
   return created.rows[0].id;

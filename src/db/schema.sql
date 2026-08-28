@@ -53,6 +53,10 @@ CREATE TABLE IF NOT EXISTS users (
   created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
   last_login_at TIMESTAMPTZ
 );
+-- Один и тот же непустой email = один аккаунт (детерминированная линковка Apple+Google
+-- по email; NULL-email от Apple private relay допускается многократно).
+CREATE UNIQUE INDEX IF NOT EXISTS users_email_unique
+  ON users (email) WHERE email IS NOT NULL;
 
 -- Refresh-токены: храним ТОЛЬКО sha256-хэш (не сырой токен). Ротация при refresh.
 CREATE TABLE IF NOT EXISTS refresh_tokens (
@@ -151,3 +155,38 @@ CREATE INDEX IF NOT EXISTS idx_sync_profiles_xid ON sync_profiles(user_id, serve
 CREATE INDEX IF NOT EXISTS idx_sync_norms_xid    ON sync_norms(user_id, server_xid);
 CREATE INDEX IF NOT EXISTS idx_sync_entries_xid  ON sync_food_entries(user_id, server_xid);
 CREATE INDEX IF NOT EXISTS idx_sync_cache_xid    ON sync_food_cache(user_id, server_xid);
+
+-- ---------------------------------------------------------------------------
+-- Attestation (App Attest / Play Integrity) — «подлинная ли это сборка на честном
+-- устройстве». Ортогонально users/refresh_tokens (это identity). См. appAttest.js /
+-- playIntegrity.js / attestChallenge.js.
+-- ---------------------------------------------------------------------------
+
+-- Публичные ключи устройств, зарегистрированные через App Attest (iOS).
+-- Одна строка на key_id (= base64 credentialId = SHA256 публичного ключа Secure Enclave).
+CREATE TABLE IF NOT EXISTS attest_keys (
+  key_id       TEXT PRIMARY KEY,          -- base64 keyId от DCAppAttestService
+  public_key   TEXT NOT NULL,             -- SPKI PEM (P-256) из leaf-сертификата
+  sign_count   BIGINT NOT NULL DEFAULT 0, -- последний счётчик assertion (монотонно растёт)
+  environment  TEXT NOT NULL,             -- 'production' | 'development' (по AAGUID)
+  created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+  last_seen_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- Одноразовые challenge для enrollment (attestKey). Гасятся при использовании; TTL.
+CREATE TABLE IF NOT EXISTS attest_challenges (
+  challenge   TEXT PRIMARY KEY,           -- base64 случайные 32 байта
+  platform    TEXT,                       -- 'ios' | 'android'
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+  expires_at  TIMESTAMPTZ NOT NULL,
+  consumed_at TIMESTAMPTZ                  -- NULL = ещё не использован
+);
+CREATE INDEX IF NOT EXISTS idx_attest_challenges_expiry ON attest_challenges(expires_at);
+
+-- Анти-replay для одноразовых Play Integrity токенов (Android): храним sha256(token).
+CREATE TABLE IF NOT EXISTS attest_used_tokens (
+  token_hash TEXT PRIMARY KEY,            -- sha256(hex) integrity-токена
+  expires_at TIMESTAMPTZ NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_attest_used_tokens_expiry ON attest_used_tokens(expires_at);

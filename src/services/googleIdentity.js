@@ -23,6 +23,11 @@ export async function verifyGoogleIdToken(idToken, expectedNonce) {
 export async function exchangeGoogleCode(code, codeVerifier, redirectUri, clientId) {
   const resolvedClientId = clientId || process.env.GOOGLE_CLIENT_ID_IOS;
   if (!resolvedClientId) throw new Error('No Google client ID for token exchange');
+  // Only exchange with a client_id we own — never make an outbound token request
+  // to Google on behalf of an attacker-supplied client_id.
+  if (!config.accounts.google.clientIds.includes(resolvedClientId)) {
+    throw new Error('Unknown Google client ID');
+  }
 
   const body = new URLSearchParams({
     grant_type: 'authorization_code',

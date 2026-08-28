@@ -4,6 +4,7 @@ import express from 'express';
 import { config } from './config.js';
 import { healthRouter } from './routes/health.js';
 import { authRouter } from './routes/auth.js';
+import { attestRouter } from './routes/attest.js';
 import { foodRouter } from './routes/food.js';
 import { normsRouter } from './routes/norms.js';
 import { syncRouter } from './routes/sync.js';
@@ -25,6 +26,10 @@ app.use('/', healthRouter);
 // Authentication (login/refresh/logout) — public endpoints, BEFORE authMiddleware.
 // (DELETE /v1/auth/account inside the router is protected by its own requireUser.)
 app.use('/', authRouter);
+
+// Attestation challenge + App Attest enrollment — public, BEFORE authMiddleware:
+// a device must enroll before it can produce the assertions authMiddleware requires.
+app.use('/', attestRouter);
 
 // Lightweight log of incoming /v1/* (method, path, platform) — helps observe client traffic.
 app.use('/v1', (req, _res, next) => {

@@ -11,10 +11,22 @@ import { config } from '../src/config.js';
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const SCHEMA_PATH = join(__dirname, '..', 'src', 'db', 'schema.sql');
 
+// Скрываем пароль (и creds) из строки подключения перед печатью в лог.
+function maskDbUrl(url) {
+  try {
+    const u = new URL(url);
+    if (u.password) u.password = '***';
+    if (u.username) u.username = '***';
+    return u.toString();
+  } catch {
+    return '<hidden>';
+  }
+}
+
 async function main() {
   const useTest = process.argv.includes('--test');
   const connectionString = useTest ? config.db.testUrl : config.db.url;
-  console.log(`Применяю schema.sql к ${useTest ? 'TEST' : 'MAIN'} БД: ${connectionString}`);
+  console.log(`Применяю schema.sql к ${useTest ? 'TEST' : 'MAIN'} БД: ${maskDbUrl(connectionString)}`);
 
   const client = new pg.Client({ connectionString });
   await client.connect();

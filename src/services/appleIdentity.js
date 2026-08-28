@@ -30,7 +30,12 @@ export async function verifyAppleIdentityToken(identityToken, expectedNonce) {
   });
   // Native iOS puts SHA256(nonce) hex in the token; the client sends the raw nonce.
   // We check against both the raw one (web-flow) and sha256 (native).
-  if (expectedNonce && payload.nonce) {
+  // If the client committed to a nonce, the token MUST carry one — a missing
+  // `nonce` claim is a hard failure, never a silent skip (replay protection).
+  if (expectedNonce) {
+    if (!payload.nonce) {
+      throw new Error('в токене нет nonce, хотя ожидался');
+    }
     const sha = createHash('sha256').update(expectedNonce).digest('hex');
     if (payload.nonce !== expectedNonce && payload.nonce !== sha) {
       throw new Error('nonce не совпал');
