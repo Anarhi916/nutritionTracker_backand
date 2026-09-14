@@ -210,7 +210,9 @@ export async function verifyAppAttest(req) {
     `SELECT public_key, sign_count FROM attest_keys WHERE key_id = $1`,
     [keyId],
   );
-  if (!rows.length) return { ok: false, reason: 'ключ не зарегистрирован (нужен enrollment)' };
+  if (!rows.length) {
+    return { ok: false, reason: 'ключ не зарегистрирован (нужен enrollment)' };
+  }
   const publicKeyPem = rows[0].public_key;
   const storedCount = Number(rows[0].sign_count);
 
@@ -226,13 +228,15 @@ export async function verifyAppAttest(req) {
   const signature = Buffer.from(assertion.signature);
   const authData = Buffer.from(assertion.authenticatorData);
   const clientDataHash = sha256(Buffer.from(clientData, 'utf8'));
+  // nonce = SHA256(authenticatorData || SHA256(clientData))
+  // Apple's generateAssertion passes this nonce to SecKeyCreateSignature(..., ecdsaSignatureMessageX962SHA256, nonce),
+  // which applies SHA256 internally → effective signature = ECDSA(SHA256(nonce)).
+  // createVerify('SHA256').update(nonce) also applies SHA256 → matches Apple's signature.
+  const nonce = sha256(Buffer.concat([authData, clientDataHash]));
 
-  // ECDSA-with-SHA256 over (authData || clientDataHash) == signature over the App Attest nonce.
   let sigOk = false;
   try {
-    sigOk = createVerify('SHA256')
-      .update(Buffer.concat([authData, clientDataHash]))
-      .verify(publicKeyPem, signature);
+    sigOk = createVerify('SHA256').update(nonce).verify(publicKeyPem, signature);
   } catch {
     sigOk = false;
   }

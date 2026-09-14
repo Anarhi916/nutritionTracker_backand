@@ -43,7 +43,11 @@ export const config = {
   models: {
     text: ['google/gemini-2.5-flash-lite'],
     photo: ['google/gemini-2.5-flash'],
-    norms: ['google/gemini-3.6-flash', 'google/gemini-2.5-pro'],
+    // flash is listed twice on purpose: transient 429/5xx are almost always momentary,
+    // so retry flash once (after backoff) before escalating to the pricier Pro. This keeps
+    // norms on one model (consistent numbers) and mirrors the same-model retry that the
+    // single-element text/photo pools already get via models[Math.min(attempt, len-1)].
+    norms: ['google/gemini-3.6-flash', 'google/gemini-3.6-flash', 'google/gemini-2.5-pro'],
     // combined allowlist for validating incoming requests
     allowed: [
       'google/gemini-2.5-flash-lite',
