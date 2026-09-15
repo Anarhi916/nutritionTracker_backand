@@ -15,10 +15,19 @@ import {
   buildBatchNutrientPrompt, buildMicroFillPrompt, buildSingleDishPrompt, buildDairyPrompt,
   buildFatDetailsPrompt, buildNutrientsFromUsda, nutrientDataFromMap, fillMissingMicros,
   extractJSON, parseJSONMap, parseJSONArray, isDairyWithFatPercent, extractFatPercent,
+  dairyPercentIsIngredient,
   stripFatPercent, buildEnrichMicrosPrompt, buildPhotoPrompt, emptyNutrients,
 } from './prompts.js';
 
 const TEXT = config.models.text;
+
+// AI occasionally returns copper in mcg instead of mg (e.g. 450 instead of 0.45).
+// Max real-world copper in food is ~14.5 mg/100g (beef liver). Anything above 20 is an mcg error.
+function sanitizeNutrients(n) {
+  if (!n) return n;
+  if (n.copper > 20) n = { ...n, copper: n.copper / 1000 };
+  return n;
+}
 
 // British → American English (for USDA). Port of the list from iOS.
 const BRITISH_TO_AMERICAN = [
@@ -292,7 +301,7 @@ export async function analyzeSingleDish(dishName) {
   });
   const map = parseJSONMap(text);
   const nameEn = typeof map.food_name_en === 'string' ? map.food_name_en : dishName;
-  let per100g = nutrientDataFromMap(map);
+  let per100g = sanitizeNutrients(nutrientDataFromMap(map));
   if (isDairyWithFatPercent(dishName, nameEn)) {
     per100g = await correctDairyMacros(per100g, dishName);
   }
@@ -325,9 +334,16 @@ export async function analyzeFoodText(items, uiLang, { useCache = true } = {}) {
   // Cache lookup by keyEn (the only cache on the server).
   for (const id of identities) {
     const nameRu = id.foodName || descriptionForAi;
-    const nameEn = id.foodNameEn || id.foodName;
+    let nameEn = id.foodNameEn || id.foodName;
     // Language-stable anchor for search/estimation (never the localized display name).
-    const nameOrig = id.foodNameOrig || descriptionForAi;
+    let nameOrig = id.foodNameOrig || descriptionForAi;
+    // Composite dish/drink where a fat % belongs to a dairy ADD-IN ("кофе с сливками 10%"):
+    // strip the % from the search/estimation/cache-key names so the AI doesn't anchor the
+    // WHOLE product's fat to it. The display name (nameRu) keeps the % the user typed.
+    if (dairyPercentIsIngredient(nameOrig, nameEn)) {
+      nameEn = stripFatPercent(nameEn);
+      nameOrig = stripFatPercent(nameOrig);
+    }
     const weight = id.weightGrams > 0 ? id.weightGrams : 100.0;
 
     const cached = useCache ? await findInCache(nameEn) : null;
@@ -410,7 +426,7 @@ export async function analyzeFoodText(items, uiLang, { useCache = true } = {}) {
         messages: [{ role: 'user', content: buildBatchNutrientPrompt(foodsList, needAi.length) }], models: TEXT,
       });
       const parsed = parseJSONArray(text);
-      needAi.forEach((it, i) => { if (i < parsed.length) it.nutrientsPer100g = nutrientDataFromMap(parsed[i]); });
+      needAi.forEach((it, i) => { if (i < parsed.length) it.nutrientsPer100g = sanitizeNutrients(nutrientDataFromMap(parsed[i])); });
     } catch { /* log omitted */ }
   }
 

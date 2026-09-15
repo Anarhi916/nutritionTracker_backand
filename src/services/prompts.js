@@ -214,6 +214,10 @@ For composite dishes (salads, soups):
 - do NOT list all ingredients in food_name_en — use a SHORT recognizable name
 - if the dish is "without dressing" / "without mayo" — do NOT include "without dressing" in food_name_en
 
+CRITICAL — "X с/with Y Zg" single-weight constructions:
+If the user writes a food with "с" / "with" / "і" / "and" and gives ONLY ONE total weight (e.g. "хлеб с маслом 20г", "bread with butter 20g", "тост с сыром 30г", "хлеб черный с сыром Филадельфия 14г"), treat the WHOLE thing as ONE item with that total weight. Do NOT split into separate products.
+Exception: split ONLY when each component has its own explicit weight (e.g. "хлеб 15г с маслом 5г").
+
 Description: ${description}
 
 Return ONLY a JSON array (even for a single product):
@@ -350,10 +354,19 @@ export function buildBatchNutrientPrompt(foodsList, count) {
   return `You are a professional nutritionist. Provide nutritional values PER 100 GRAMS for EACH food below.
 Return ONLY a JSON array with one object per food, in the SAME ORDER.
 
-IMPORTANT — liquid drinks: compote (компот), mors (морс), kissel (кисель, thin), fruit-infused water,
-diluted juice, tea/coffee with sugar and similar DRINKS are mostly water. Their per-100g values are LOW:
-a typical drinkable fruit compote is ~40-70 kcal and ~10-17 g carbs per 100g (it is a beverage sipped
-from a glass, NOT concentrated stewed fruit in syrup). Do NOT return concentrate/jam/syrup values for a drink.
+IMPORTANT — liquid drinks are mostly water, so per-100g values are LOW. Never return
+concentrate/jam/syrup or pure-dairy values for a drink:
+• Coffee/tea (кофе, чай, американо, эспрессо, latte, cappuccino), INCLUDING with a splash of
+  milk/cream and/or sugar, is ~85-95% water: black coffee/tea ≈ 2 kcal; coffee/tea with a little
+  milk/cream and sugar ≈ 10-30 kcal; a milky latte/cappuccino ≈ 40-55 kcal per 100g. Do NOT treat
+  "coffee with cream 10%" or "tea with milk" as if it were pure cream/milk — it is a diluted beverage.
+• Fruit drinks: compote (компот), mors (морс), thin kissel (кисель), fruit-infused water,
+  diluted juice ≈ 40-70 kcal and ~10-17 g carbs per 100g (a beverage sipped from a glass,
+  NOT concentrated stewed fruit in syrup).
+
+IMPORTANT — copper MUST be in MG (milligrams), NOT mcg. Typical range: 0.1–15 mg per 100g.
+Examples: grain/cereal flakes ~0.4 mg, beef liver ~14 mg, cashews ~2.2 mg, oatmeal ~0.2 mg.
+Never return values like 450 for copper — that would mean 450 mg which is toxic. Correct: 0.45 mg.
 
 Foods:
 ${foodsList}
@@ -368,6 +381,9 @@ export function buildMicroFillPrompt(foodsList, count) {
 Return ONLY a JSON array with one object per food, in the SAME ORDER.
 
 IMPORTANT: iodine is REQUIRED. Typical: seafood 30-160 mcg, dairy 20-50 mcg, egg 24 mcg, buckwheat 3.3 mcg.
+
+IMPORTANT — copper MUST be in MG (milligrams), NOT mcg. Typical range: 0.1–15 mg per 100g.
+Examples: grain/cereal flakes ~0.4 mg, beef liver ~14 mg, cashews ~2.2 mg. Never return values > 20.
 
 Foods:
 ${foodsList}
@@ -408,9 +424,14 @@ export function buildSingleDishPrompt(dishName) {
   return `You are a professional nutritionist. Provide nutritional values PER 100 GRAMS for this COMPLETE DISH (do NOT split into ingredients):
 "${dishName}"
 
-IMPORTANT — if this is a liquid drink (compote/компот, mors/морс, thin kissel/кисель, fruit-infused water,
-diluted juice, tea/coffee): it is mostly water, so per-100g values are LOW (a drinkable fruit compote is
-~40-70 kcal, ~10-17 g carbs per 100g — a beverage, NOT concentrated stewed fruit in syrup).
+IMPORTANT — if this is a liquid drink it is mostly water, so per-100g values are LOW (never return
+concentrate/jam/syrup or pure-dairy values):
+- Coffee/tea (кофе, чай, американо, эспрессо, latte, cappuccino), INCLUDING with a splash of milk/cream
+  and/or sugar, is ~85-95% water: black coffee/tea ≈ 2 kcal; coffee/tea with a little milk/cream and sugar
+  ≈ 10-30 kcal; a milky latte/cappuccino ≈ 40-55 kcal per 100g. Do NOT treat "coffee with cream 10%" or
+  "tea with milk" as if it were pure cream/milk — it is a diluted beverage.
+- Fruit drinks (compote/компот, mors/морс, thin kissel/кисель, fruit-infused water, diluted juice)
+  ≈ 40-70 kcal, ~10-17 g carbs per 100g — a beverage, NOT concentrated stewed fruit in syrup.
 
 Return ONLY a JSON object with these fields:
 {"food_name_en": "<English translation>", "calories": <kcal>, "protein": <g>, "fat": <g>, "saturated_fat": <g>, "monounsaturated_fat": <g>, "polyunsaturated_fat": <g>, "cholesterol": <mg>, "carbs": <g>, "fiber": <g>, "vitamin_a": <mcg>, "vitamin_b1": <mg>, "vitamin_b2": <mg>, "vitamin_b3": <mg>, "vitamin_b5": <mg>, "vitamin_b6": <mg>, "vitamin_b7": <mcg>, "vitamin_b9": <mcg>, "vitamin_b12": <mcg>, "vitamin_c": <mg>, "vitamin_d": <mcg>, "vitamin_e": <mg>, "vitamin_k": <mcg>, "calcium": <mg>, "iron": <mg>, "magnesium": <mg>, "phosphorus": <mg>, "potassium": <mg>, "sodium": <mg>, "zinc": <mg>, "copper": <mg>, "manganese": <mg>, "selenium": <mcg>, "iodine": <mcg>}`;
@@ -503,6 +524,14 @@ const DAIRY_FAT_KEYWORDS = [
   'ryazhenka', 'yogurt', 'yoghurt', 'cream', 'buttermilk',
 ];
 
+// A connective preposition ("X с молоком", "каша на сливках", "coffee with cream")
+// marks the dairy as an ADD-IN, i.e. the name is a composite dish/drink, not a pure
+// dairy product. GOST fat-% macro correction must NOT apply to those.
+function dairyIsMereIngredient(foodName) {
+  return /(^|\s)(с|со|на|from)\s/i.test(` ${String(foodName)} `) ||
+    /\s(with|on)\s/i.test(` ${String(foodName)} `);
+}
+
 // true if a dairy product with an explicit fat % (hard cheeses excluded).
 export function isDairyWithFatPercent(foodName, englishName = '') {
   const lower = `${foodName} ${englishName}`.toLowerCase();
@@ -513,7 +542,24 @@ export function isDairyWithFatPercent(foodName, englishName = '') {
     !hasKeyword;
   if (isHardCheese) return false;
   if (!hasKeyword) return false;
-  return extractFatPercent(foodName) !== null || extractFatPercent(englishName) !== null;
+  if (extractFatPercent(foodName) === null && extractFatPercent(englishName) === null) return false;
+  // Composite dish/drink where dairy is only an add-in ("кофе с сливками 10%",
+  // "чай с молоком", "каша на молоке 3.2%", "coffee with cream 10%") — the fat % is
+  // the dairy's, NOT the whole product's, so skip the pure-dairy GOST override.
+  if (dairyIsMereIngredient(foodName) || dairyIsMereIngredient(englishName)) return false;
+  return true;
+}
+
+// true when a fat % is attached to a dairy ADD-IN inside a composite dish/drink
+// ("кофе с сливками 10%", "каша на молоке 3.2%"). The % is the INGREDIENT's fat, NOT the
+// whole product's — but the AI anchors total fat to that % (a coffee with a splash of 10%
+// cream is ~90% water, yet gets estimated as pure 10% cream: 130 kcal/10g fat per 100g).
+// The pipeline strips the % from such names before nutrient estimation and cache keying.
+export function dairyPercentIsIngredient(foodName, englishName = '') {
+  const lower = `${foodName} ${englishName}`.toLowerCase();
+  if (!DAIRY_FAT_KEYWORDS.some((k) => lower.includes(k))) return false;
+  if (extractFatPercent(foodName) === null && extractFatPercent(englishName) === null) return false;
+  return dairyIsMereIngredient(foodName) || dairyIsMereIngredient(englishName);
 }
 
 // buildNutrientsFromUsda — extracts NutrientData from a USDA food + all checks.
