@@ -626,6 +626,20 @@ export function buildNutrientsFromUsda(food, query, negationCleaned) {
     per100g.vitamin_b3 *= 0.22;
     per100g.vitamin_b9 *= 0.17;
     per100g.iron *= 0.26;
+  } else if (
+    // US enriched-white-rice correction. White rice sold in the US is enriched with
+    // thiamin, niacin, iron and folic acid (NOT riboflavin); most of the world eats
+    // unenriched polished rice. Brown/wild rice is never enriched — exclude it, or its
+    // legitimate bran nutrients would be destroyed. `else if` keeps rice cereals/bars
+    // (which match a flourKeyword above) from being corrected twice.
+    /\brice\b/.test(foodDesc) &&
+    !/\b(brown|wild)\b/.test(foodDesc) &&
+    !foodDesc.includes('unenriched')
+  ) {
+    per100g.vitamin_b1 *= 0.12;
+    per100g.vitamin_b3 *= 0.38;
+    per100g.vitamin_b9 *= 0.07;
+    per100g.iron *= 0.18;
   }
 
   // Atwater sanity check + implausible-macro guard
